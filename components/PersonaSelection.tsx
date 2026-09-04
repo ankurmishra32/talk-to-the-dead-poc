@@ -365,7 +365,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Papa, Dadi, Joe"
+              placeholder="e.g. Mom, Grandpa, Alex"
               className="w-full border p-2 rounded"
             />
           </div>
@@ -392,7 +392,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
               type="text"
               value={theyCalledYou}
               onChange={(e) => setTheyCalledYou(e.target.value)}
-              placeholder="e.g. beta, bachcha, kid"
+              placeholder="e.g. sweetie, kiddo, buddy"
               className="w-full border p-2 rounded"
             />
           </div>
@@ -492,8 +492,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                       }}
                       placeholder={
                         i === 0
-                          ? 'e.g. "Bill tera baap bharega?"'
-                          : 'e.g. "Khana kha liya?"'
+                          ? "e.g. \"That's too expensive — who's paying for that?\""
+                          : "e.g. \"Have you eaten yet?\""
                       }
                       className="w-full border p-2 rounded text-sm bg-white"
                     />
@@ -513,8 +513,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                       }}
                       placeholder={
                         i === 0
-                          ? 'e.g. "When I asked for an expensive purchase or was wasting money"'
-                          : 'e.g. "Whenever I walked through the door after school or work"'
+                          ? "e.g. \"When I mentioned buying something expensive\""
+                          : "e.g. \"Whenever I came home from work\""
                       }
                       className="w-full border p-2 rounded text-sm bg-white"
                     />
@@ -536,8 +536,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                         }}
                         placeholder={
                           i === 0
-                            ? "e.g. Sarcastic: who will pay for this?"
-                            : "e.g. Caring: checking if I was taken care of"
+                            ? "e.g. Disapproval: they thought I was wasting money"
+                            : "e.g. Care: they wanted to know I was okay"
                         }
                         className="w-full border p-2 rounded text-sm bg-white"
                       />
@@ -558,8 +558,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                         }}
                         placeholder={
                           i === 0
-                            ? "e.g. Irritated, sarcastic"
-                            : "e.g. Warm, affectionate, concerned"
+                            ? "e.g. Frustrated, direct"
+                            : "e.g. Warm, caring"
                         }
                         className="w-full border p-2 rounded text-sm bg-white"
                       />
@@ -581,8 +581,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                       }}
                       placeholder={
                         i === 0
-                          ? 'e.g. "Questions why I spent so much money and complains about unnecessary expenses"'
-                          : 'e.g. "Insists that I sit down and eat before doing anything else"'
+                          ? 'e.g. "Scolds me for wasting money, asks what I needed it for"'
+                          : 'e.g. "Insists I sit down and rest before doing anything else"'
                       }
                       className="w-full border p-2 rounded text-sm bg-white"
                     />
