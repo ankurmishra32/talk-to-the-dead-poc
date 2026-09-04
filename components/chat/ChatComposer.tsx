@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { strings } from "../../lib/strings";
 
 type Props = {
@@ -8,6 +9,15 @@ type Props = {
   onCancel: () => void;
 };
 
+/**
+ * The message composer (textarea + Send / Cancel) at the bottom of the
+ * chat. Pure presentational — Enter without Shift sends, Shift+Enter
+ * inserts a newline, matching the original behavior lifted to the parent.
+ *
+ * The form's onSubmit is the single entry point for sends. On Enter,
+ * we prevent the default newline, then trigger the form submit via
+ * requestSubmit() so only one code path fires.
+ */
 export default function ChatComposer({
   input,
   loading,
@@ -15,8 +25,11 @@ export default function ChatComposer({
   onSend,
   onCancel,
 }: Props) {
+  const formRef = useRef<HTMLFormElement>(null);
+
   return (
     <form
+      ref={formRef}
       onSubmit={onSend}
       className="p-4 border-t flex gap-3 items-end"
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)" }}
@@ -31,7 +44,7 @@ export default function ChatComposer({
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            onSend(e as unknown as React.FormEvent);
+            formRef.current?.requestSubmit();
           }
         }}
         placeholder={strings.chat.composePlaceholder}

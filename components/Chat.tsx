@@ -66,6 +66,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   const pendingAssistantIdRef = useRef<string | null>(null);
   const nearBottomRef = useRef(true);
   const dirtyIdsRef = useRef<Set<string>>(new Set());
+  const sendingRef = useRef(false);
   const { getAccessToken } = useAuth();
 
   useEffect(() => {
@@ -292,8 +293,10 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sendingRef.current) return;
     const text = input.trim();
     if (!text || loading) return;
+    sendingRef.current = true;
 
     const localKey = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const next: ChatMessage[] = [
@@ -327,6 +330,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     const idToken = await getAccessToken();
     if (!idToken) {
       setLoading(false);
+      sendingRef.current = false;
       setError(strings.chat.signedOut);
       return;
     }
@@ -347,6 +351,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       });
     } catch (err) {
       setLoading(false);
+      sendingRef.current = false;
       if (err instanceof DOMException && err.name === "AbortError") {
         if (streamingContent) {
           const assistantId = pendingAssistantIdRef.current ?? undefined;
@@ -359,16 +364,19 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         return;
       }
       setError(err instanceof Error ? err.message : strings.chat.networkError);
+      sendingRef.current = false;
       return;
     }
 
     if (res.status === 401) {
       setLoading(false);
+      sendingRef.current = false;
       setError(strings.chat.sessionExpired);
       return;
     }
     if (!res.ok || !res.body) {
       setLoading(false);
+      sendingRef.current = false;
       let detail = "";
       try {
         const data = (await res.json()) as { error?: string };
@@ -388,6 +396,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
 
     const handleAbort = () => {
       setLoading(false);
+      sendingRef.current = false;
       if (accumulated) {
         const assistantId = pendingAssistantIdRef.current ?? undefined;
         setMessages((prev) => [
@@ -443,6 +452,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     }
 
     setLoading(false);
+    sendingRef.current = false;
     const assistantId = pendingAssistantIdRef.current ?? undefined;
     setMessages((prev) => [
       ...prev,
