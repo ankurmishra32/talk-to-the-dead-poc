@@ -36,22 +36,36 @@ Dashboard ── no persona ──▶ PersonaSelection (guided interview → cre
                                └── Profile (view persona's detail)
 ```
 
-1. **Sign up / sign in** with email + password (Firebase Auth). On success, land on the dashboard.
+1. **Sign up / sign in** with email + password (Firebase Auth). Signup is a 2-step wizard: account credentials, then a profile (display name, optional phone, optional "who do you want to remember?" hint). On success, land on the dashboard.
 2. **Create a persona** through a guided interview — the app asks how you'd describe the person, without requiring any prompt engineering from the user.
 3. **Chat** with the persona. Replies stream token-by-token so the conversation feels natural, not API-shaped.
 4. **Manage memories** over time from inside the chat surface — capture new memories, edit, or delete them as they occur to you.
 5. **Come back anytime** — conversations persist and resume where you left off.
+6. **Delete the account** anytime from the persona header (re-auth + type `DELETE`), which removes all data and the account.
 
 ## 4. Features
 
 ### 4.1 Authentication
 | Requirement | Acceptance criteria |
 |---|---|
-| Email/password sign-up | User can create an account with an email and password. |
+| Email/password sign-up | User can create an account with email, password, and confirm password via a 2-step wizard (Account → Profile). |
+| Profile capture | After creating the account, the user supplies a display name (required), phone (optional), and optional "who do you want to remember?" hint, saved to `users/{uid}`. |
 | Email/password sign-in | Existing user can sign in and reach their dashboard. |
 | Session persistence | Logging in once keeps the user authenticated across refreshes. |
 | Sign out | User can sign out and is returned to the login screen. |
 | Auth guard | Unauthenticated users cannot reach the dashboard (redirected to login). |
+| Profile guard | A logged-in user without a `users/{uid}` profile doc is redirected to `/signup` to complete it. |
+| Delete account | From the persona header ("Account settings"), the user can re-authenticate, type `DELETE`, and permanently remove the account and all associated data (personas, memories, conversation history). |
+
+### 4.1.1 Account & data management
+- Account deletion requires **re-authentication** (current password) and a
+  typed `DELETE` confirmation to prevent accidental or unauthorized deletion.
+- Deleting the account removes the `users/{uid}` profile, all `personas`,
+  all `memories`, and all `conversations/{personaId}/messages` for the user,
+  then deletes the Firebase Auth account.
+- Login/signup inputs carry correct `name` + `autocomplete` attributes so
+  browser password managers (e.g. Google Password Manager) offer to save
+  credentials.
 
 ### 4.2 Guided persona interview
 The user describes the person through structured, non-technical questions. No prompt engineering required.
@@ -136,8 +150,9 @@ Rules for the model:
 
 ## 6. Data Model (product view)
 
-Three collections, all scoped to a user:
+Collections, all scoped to a user:
 
+- **users/{uid}** — the user's profile (display name, optional phone, optional "who do you want to remember?" hint, created at signup step 2).
 - **personas/{personaId}** — a description of one simulated person (name, relationship, terms of address, languages, speaking style, speech examples, distinctive story, timestamps).
 - **memories/{memoryId}** — a single memory, optionally attached to a persona.
 - **conversations/{personaId}/messages/{msgId}** — one chat message (user or assistant) with its content and timestamp. Each message is its own document, enabling pagination and per-message edit/delete without a 1 MiB document limit.

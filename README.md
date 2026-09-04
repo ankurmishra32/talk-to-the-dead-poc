@@ -49,6 +49,18 @@ npm start        # Serve production build
 npm run lint     # ESLint (next/core-web-vitals + next/typescript)
 ```
 
+## Accounts
+
+- **Signup** is a 2-step wizard at `/signup`: first the account (email +
+  password), then a profile (display name, optional phone, optional "who do you
+  want to remember?"). The profile is stored in the `users/{uid}` Firestore
+  document.
+- **Guard**: the dashboard requires a completed profile — a logged-in user
+  without one is redirected to `/signup` to finish it.
+- **Account deletion**: from the persona header, "Account settings" →
+  re-enter your password and type `DELETE`. This permanently removes all your
+  personas, memories, conversation history, and the account itself.
+
 ## License
 
 Licensed under [GNU Affero General Public License v3.0](LICENSE).

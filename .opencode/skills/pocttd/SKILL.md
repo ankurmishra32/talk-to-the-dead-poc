@@ -18,6 +18,8 @@ phrase.
 - Firebase Authentication (email/password) + Cloud Firestore, named database
   `talk-to-the-dead`.
 - Data scoped per owning Firebase user: personas, memories, conversations.
+  A `users/{uid}` profile doc (display name, optional phone, onboarding hint)
+  is created on signup via `lib/users.ts`.
 - `pages/api/chat.ts`: verify user → load persona + memories → build system
   prompt → rate-limit → stream SSE reply → persist completed assistant reply.
 - LLM behind the `lib/llm/` adapter (`lib/llm/index.ts` picks provider via
@@ -27,6 +29,25 @@ phrase.
 - Rate limiting in `lib/rate-limit.ts` (in-memory fallback, or shared Upstash
   Redis when `UPSTASH_REDIS_REST_URL` is set — required for correct serverless
   behavior).
+
+## Auth / accounts
+
+- Login at `/`; 2-step signup at `/signup` (Account → Profile). Guards:
+  `/signup` → `/dashboard` if a profile exists; `/dashboard` → `/signup` if a
+  logged-in user has no `users/{uid}` doc.
+- Account deletion from persona header "Account settings" →
+  `DeleteAccountModal.tsx` → `lib/account.ts` `deleteAccount()` (re-auth +
+  type DELETE; batch-deletes Firestore data, then `deleteUser()`).
+- Login/signup inputs carry `name` + `autocomplete` for password-manager
+  detection.
+
+## Error handling / UX
+
+- All user-facing strings (including errors) live in `lib/strings.ts`.
+- Never pass `err.message` (Firebase/SDK internals) to the user — log via
+  `createLogger()...error()` and show a friendly, actionable string.
+- API route + LLM adapter errors also emit friendly copy and log raw detail
+  server-side.
 
 ## The model / provider
 

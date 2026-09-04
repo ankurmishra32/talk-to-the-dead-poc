@@ -93,7 +93,9 @@ components/
 ├── Chat.tsx              # Streaming chat UI: ReadableStream + SSE parser, pagination,
 │                         #   optimistic writes, edit/delete, profile & memory toggles
 ├── MemoryInput.tsx       # Memory CRUD surface (capture, view, edit, delete)
-└── PersonaSelection.tsx  # Guided persona interview + create/edit/delete/list personas
+├── PersonaSelection.tsx  # Guided persona interview + create/edit/delete/list personas
+├── DeleteAccountModal.tsx# Account deletion confirmation (re-auth + type DELETE)
+└── Confirm.tsx           # Reusable accessible confirm dialog
 firebase/
 └── config.ts             # Firebase client SDK init (named db "talk-to-the-dead")
 lib/
@@ -113,11 +115,16 @@ lib/
 │   └── index.ts          #   Provider factory
 ├── rate-limit.ts         # Per-UID token bucket + concurrency cap
 ├── firestore.ts          # Server-side Firestore + Identity Toolkit REST wrapper
+├── users.ts              # Client-side user profile helpers (get/createUserProfile)
+├── account.ts            # Account deletion: Firestore cleanup + Firebase Auth deleteUser
+├── logger.ts             # createLogger() — log technical detail, not user copy
+├── strings.ts            # Centralized user-facing strings incl. friendly errors
 └── prompts.ts            # Pure system-prompt builder (no IO, easily testable)
 pages/
 ├── _app.tsx
-├── index.tsx             # Login / signup
-├── dashboard.tsx         # Persona picker → chat
+├── index.tsx             # Login (email + password)
+├── signup.tsx            # 2-step signup wizard (Account → Profile)
+├── dashboard.tsx         # Persona picker → chat; profile guard → /signup
 └── api/
     └── chat.ts           # POST endpoint (streams SSE, persists reply)
 styles/globals.css        # Tailwind v4 entry
@@ -128,6 +135,20 @@ firestore.indexes.json    # Composite indexes for owner-scoped queries
 ---
 
 ## 5. Data Model (field-level)
+
+### users/{uid}
+| Field | Type | Notes |
+|---|---|---|
+| `uid` | string | Firebase uid — key of the document |
+| `email` | string | Account email (denormalized) |
+| `displayName` | string | Required at signup |
+| `phone` | string? | Optional, `null` if not supplied |
+| `onboardingHint` | string? | Optional "who do you remember" free text |
+| `createdAt` | timestamp | `serverTimestamp()` at signup |
+
+Created on signup step 2 via `createUserProfile()` in `lib/users.ts` (client
+SDK). Used by the dashboard guard (redirect to `/signup` when missing) and
+removed by account deletion in `lib/account.ts`.
 
 ### personas/{personaId}
 | Field | Type | Notes |
@@ -232,6 +253,15 @@ Both adapters handle network errors, HTTP errors, and mid-stream failure by emit
 ### Server (`firebase.server.ts`)
 - `verifyAccessToken(token)` strips `Bearer `, POSTs to `identitytoolkit.googleapis.com/v1/accounts:lookup?key=<FIREBASE_API_KEY>` with `{ idToken }`, returns `{ uid, email }`.
 - Selector: `AUTH_PROVIDER` (default `"firebase"`).
+
+### Client-side account lifecycle (outside the adapter)
+Signup, profile persistence, and deletion are handled directly with the client
+SDK (via `lib/users.ts` / `lib/account.ts`), not through the adapter:
+- `createUserProfile()` writes `users/{uid}` after `signUp()`.
+- `deleteAccount()` re-authenticates with `EmailAuthProvider.credential`,
+  batch-deletes a user's Firestore data (personas, memories, conversation
+  messages via `deleteQueryBatch`, then the profile doc), and calls
+  `deleteUser()` on the Firebase Auth account.
 
 ---
 
