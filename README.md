@@ -10,6 +10,7 @@ This is a **proof of concept** exploring the experience and underlying plumbing 
 
 - **[`prd.md`](./prd.md)** — Product Requirements: vision, user journey, features, persona & behavioral design, data model (product view), non-functional requirements, roadmap, known gaps.
 - **[`architecture.md`](./architecture.md)** — Technical architecture: stack, request lifecycle, component map, data schemas, LLM / auth / Firestore layers, SSE protocol, persistence, security, env vars, commands.
+- **[`DEPLOYMENT.md`](./DEPLOYMENT.md)** — Runbook for deploying the app to Vercel, the required environment variables, and how to wire a hosted LLM for production.
 
 ## Quick start
 
