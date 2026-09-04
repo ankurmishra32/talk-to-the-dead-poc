@@ -35,6 +35,7 @@ import { createLogger } from "../lib/logger";
 import MessageBubble from "./chat/MessageBubble";
 import ProfilePanel from "./chat/ProfilePanel";
 import ChatComposer from "./chat/ChatComposer";
+import Confirm from "./Confirm";
 
 const PAGE_SIZE = 40;
 
@@ -69,6 +70,9 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   // null when nothing is being edited.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
+  // The message awaiting destructive confirmation for deletion. Rendered via
+  // the in-UI Confirm dialog so we don't rely on native window.confirm.
+  const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Firestore doc id of the assistant message currently being
@@ -78,6 +82,10 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   // event fires inside the read loop, but the message is appended
   // after the loop exits.
   const pendingAssistantIdRef = useRef<string | null>(null);
+  // Tracks whether the user is close to the bottom of the message list. Used
+  // to avoid yanking the view down to the newest message while the user is
+  // scrolled up reading older history (e.g. after loading a paginated page).
+  const nearBottomRef = useRef(true);
   // Messages the user is currently editing locally. Remote changes to
   // these ids are ignored so an edit on another device doesn't clobber
   // the user's in-progress draft. Cleared on save or cancel.
@@ -180,8 +188,14 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   }, [persona.id, persona.name, user.uid]);
 
   useEffect(() => {
-    // Auto-scroll to the bottom on each new message.
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    // Auto-scroll to the bottom on each new message — but only when the user
+    // is already near the bottom. If they're scrolled up reading history, a
+    // smooth-scroll would yank them down and fight the pagination scroll
+    // restore in the useLayoutEffect below.
+    const el = listRef.current;
+    if (!el) return;
+    if (!nearBottomRef.current) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, streamingContent, loading]);
 
   // Clean up any in-flight request when the persona changes or the
@@ -253,8 +267,12 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   // generous (80px) so the fetch starts before the user actually hits
   // the top, hiding latency.
   const handleListScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    // Update the near-bottom marker on every scroll so new-message auto-scroll
+    // only engages when the user is actually reading the newest messages.
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (!hasMore || loadingMore) return;
-    if (e.currentTarget.scrollTop < 80) {
+    if (el.scrollTop < 80) {
       loadOlder();
     }
   };
@@ -316,13 +334,11 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   const deleteMessage = async (m: ChatMessage) => {
     // Local-only message (cancelled partial assistant reply): no
     // Firestore doc, just drop from local state. Confirmed via the
-    // same confirm() dialog so the UX is consistent.
+    // same Confirm dialog so the UX is consistent.
     if (!m.id) {
-      if (!window.confirm("Delete this message?")) return;
       setMessages((prev) => prev.filter((x) => x !== m));
       return;
     }
-    if (!window.confirm("Delete this message?")) return;
     const id = m.id;
     const originalIndex = messages.findIndex((item) => item.id === id);
     // Optimistic local removal.
@@ -656,7 +672,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
               onSaveEdit={saveEdit}
               onCancelEdit={cancelEdit}
               onEdit={() => startEdit(m)}
-              onDelete={() => deleteMessage(m)}
+              onDelete={() => setPendingDelete(m)}
             />
           );
         })}
@@ -694,6 +710,17 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         onInputChange={setInput}
         onSend={send}
         onCancel={cancel}
+      />
+
+      <Confirm
+        open={pendingDelete !== null}
+        title="Delete this message?"
+        message="This message will be removed from the conversation and cannot be undone."
+        onConfirm={() => {
+          if (pendingDelete) deleteMessage(pendingDelete);
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
       />
     </div>
   );

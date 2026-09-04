@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { createLogger } from "../lib/logger";
+import Confirm from "./Confirm";
 
 const logger = createLogger("MemoryInput");
 
@@ -42,6 +43,8 @@ export default function MemoryInput({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Memory awaiting destructive confirmation for deletion.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // Load existing memories for this persona
   useEffect(() => {
@@ -51,12 +54,23 @@ export default function MemoryInput({
 
     async function loadMemories() {
       try {
-        const q = query(
-          collection(db, "memories"),
-          where("userId", "==", user.uid),
-          orderBy("createdAt", "desc"),
-          limit(50)
-        );
+        // Scope to this persona when one is given (a compound index on
+        // (userId, personaId, createdAt desc) covers it). Without a persona
+        // we fall back to the user's most recent memories.
+        const q = persona?.id
+          ? query(
+              collection(db, "memories"),
+              where("userId", "==", user.uid),
+              where("personaId", "==", persona.id),
+              orderBy("createdAt", "desc"),
+              limit(50)
+            )
+          : query(
+              collection(db, "memories"),
+              where("userId", "==", user.uid),
+              orderBy("createdAt", "desc"),
+              limit(50)
+            );
         const snap = await getDocs(q);
         if (cancelled) return;
         const items: MemoryItem[] = snap.docs
@@ -69,11 +83,7 @@ export default function MemoryInput({
               userId: (data.userId as string) || "",
               personaId: (data.personaId as string) || null,
             };
-          })
-          .filter(
-            (m) =>
-              !persona?.id || m.personaId === persona.id
-          );
+          });
         setMemories(items);
       } catch (err) {
         if (!cancelled) {
@@ -156,7 +166,6 @@ export default function MemoryInput({
   };
 
   const handleDeleteMemory = async (id: string) => {
-    if (!window.confirm("Delete this memory?")) return;
     setError(null);
 
     try {
@@ -177,7 +186,7 @@ export default function MemoryInput({
       {/* Add New Memory Form */}
       <form onSubmit={handleAddMemory} className="space-y-3">
         <div className="flex items-center justify-between">
-          <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
+          <label htmlFor="memory-text" className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
             Add a memory {persona?.name ? `for ${persona.name}` : ""}
           </label>
           <span className="text-xs text-gray-500">
@@ -185,6 +194,7 @@ export default function MemoryInput({
           </span>
         </div>
         <textarea
+          id="memory-text"
           className="w-full border p-2.5 rounded text-sm bg-white"
           placeholder={
             persona?.name
@@ -245,6 +255,7 @@ export default function MemoryInput({
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
                       rows={3}
+                      aria-label="Edit memory"
                       className="w-full border p-2 rounded text-xs bg-white resize-none"
                     />
                     <div className="flex justify-end space-x-2">
@@ -278,7 +289,7 @@ export default function MemoryInput({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteMemory(m.id)}
+                        onClick={() => setPendingDeleteId(m.id)}
                         className="text-red-600 hover:text-red-800 border border-red-200 px-1.5 py-0.5 rounded text-[11px] bg-red-50 hover:bg-red-100"
                       >
                         Delete
@@ -291,6 +302,17 @@ export default function MemoryInput({
           </div>
         )}
       </div>
+
+      <Confirm
+        open={pendingDeleteId !== null}
+        title="Delete this memory?"
+        message="This memory will be removed and cannot be undone."
+        onConfirm={() => {
+          if (pendingDeleteId) handleDeleteMemory(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

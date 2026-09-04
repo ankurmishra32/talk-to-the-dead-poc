@@ -20,7 +20,11 @@ export default function ChatComposer({
 }: Props) {
   return (
     <form onSubmit={onSend} className="p-4 border-t flex space-x-2">
+      <label htmlFor="chat-message" className="sr-only">
+        Message
+      </label>
       <textarea
+        id="chat-message"
         value={input}
         onChange={(e) => onInputChange(e.target.value)}
         onKeyDown={(e) => {

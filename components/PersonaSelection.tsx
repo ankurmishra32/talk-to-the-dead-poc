@@ -16,6 +16,7 @@ import { useAuth } from "../lib/auth/useAuth";
 import { mapPersonaDoc, reconcilePersonas } from "../lib/personas";
 import type { PersonaItem, PersonaReference } from "../lib/types";
 import { createLogger } from "../lib/logger";
+import Confirm from "./Confirm";
 
 const logger = createLogger("PersonaSelection");
 
@@ -72,6 +73,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   const [distinctiveStory, setDistinctiveStory] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Persona awaiting destructive confirmation for deletion.
+  const [pendingDelete, setPendingDelete] = useState<PersonaItem | null>(null);
 
   useEffect(() => {
     if (userId === null) return;
@@ -167,13 +170,6 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   };
 
   const handleDelete = async (p: PersonaItem) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete "${p.name}"? This cannot be undone.`
-      )
-    ) {
-      return;
-    }
     try {
       await deleteDoc(doc(db, "personas", p.id));
       setExisting((prev) => prev.filter((item) => item.id !== p.id));
@@ -322,7 +318,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDelete(p)}
+                    onClick={() => setPendingDelete(p)}
                     className="text-sm border border-red-200 text-red-600 px-2.5 py-1 rounded hover:bg-red-50"
                   >
                     Delete
@@ -646,6 +642,17 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
           </div>
         </form>
       </section>
+
+      <Confirm
+        open={pendingDelete !== null}
+        title={`Delete "${pendingDelete?.name ?? "persona"}"?`}
+        message="This persona and its conversation history will be removed and cannot be undone."
+        onConfirm={() => {
+          if (pendingDelete) handleDelete(pendingDelete);
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
