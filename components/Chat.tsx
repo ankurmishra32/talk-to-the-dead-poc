@@ -36,6 +36,7 @@ import MessageBubble from "./chat/MessageBubble";
 import ProfilePanel from "./chat/ProfilePanel";
 import ChatComposer from "./chat/ChatComposer";
 import Confirm from "./Confirm";
+import { strings } from "../lib/strings";
 
 const PAGE_SIZE = 40;
 
@@ -51,49 +52,22 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   const [showProfile, setShowProfile] = useState(false);
   const [profile, setProfile] = useState<FullPersonaProfile | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
-  // Cursor-based pagination state. `cursor` is the oldest doc currently
-  // loaded (i.e. the last doc in the desc-ordered Firestore query). When
-  // non-null and `hasMore` is true, calling loadOlder() fetches 40 more
-  // docs older than this one. Captured as a snapshot — Firestore SDK
-  // startAfter accepts the full snapshot, not just a field value.
   const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  // When older messages prepend to the list, the user would jump down by
-  // the height of the prepended content. We capture the offset from the
-  // bottom before the prepend and restore it after the DOM updates, so
-  // the viewport stays anchored on the same message.
   const pendingScrollAdjustRef = useRef<{
     distanceFromBottom: number;
   } | null>(null);
-  // id of the message currently being edited (user messages only).
-  // null when nothing is being edited.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
-  // The message awaiting destructive confirmation for deletion. Rendered via
-  // the in-UI Confirm dialog so we don't rely on native window.confirm.
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // Firestore doc id of the assistant message currently being
-  // streamed. Populated when the SSE `event: id` arrives; read when
-  // we commit the streamed assistant text to `messages` at the end
-  // of the turn (or on cancel). Lives in a ref because the SSE
-  // event fires inside the read loop, but the message is appended
-  // after the loop exits.
   const pendingAssistantIdRef = useRef<string | null>(null);
-  // Tracks whether the user is close to the bottom of the message list. Used
-  // to avoid yanking the view down to the newest message while the user is
-  // scrolled up reading older history (e.g. after loading a paginated page).
   const nearBottomRef = useRef(true);
-  // Messages the user is currently editing locally. Remote changes to
-  // these ids are ignored so an edit on another device doesn't clobber
-  // the user's in-progress draft. Cleared on save or cancel.
   const dirtyIdsRef = useRef<Set<string>>(new Set());
   const { getAccessToken } = useAuth();
 
-  // Load the most recent messages and profile for this persona on mount and
-  // whenever the user switches personas.
   useEffect(() => {
     let cancelled = false;
     setHistoryLoading(true);
@@ -132,11 +106,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       }
     }
 
-    // Live subscription to the active persona's most recent PAGE_SIZE
-    // messages. onSnapshot keeps the list in sync with writes from any
-    // device — a message sent from a phone shows up here without a
-    // reload. Older paginated messages stay as one-shot getDocs() loads.
-    // The returned unsubscribe is called on cleanup.
     const messagesQuery = query(
       collection(db, "conversations", persona.id, "messages"),
       where("userId", "==", user.uid),
@@ -149,21 +118,14 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       (snap) => {
         if (cancelled) return;
         if (isFirstMessagesSnap) {
-          // Seed from the full snap rather than the change list, so
-          // chronological order comes straight from Firestore and the
-          // cursor lands on the oldest doc in one shot.
           isFirstMessagesSnap = false;
           const loaded = mapMessageDocs(snap.docs);
           setMessages(loaded);
-          // Cursor for the next page is the last doc of the desc-ordered
-          // snap (the oldest message currently in our window). If we got
-          // fewer than a full page, there's nothing older to fetch.
           setCursor(snap.docs[snap.docs.length - 1] ?? null);
           setHasMore(snap.docs.length === PAGE_SIZE);
           setHistoryLoading(false);
           return;
         }
-        // Subsequent events: apply docChanges incrementally.
         setMessages((prev) =>
           reconcileMessages(prev, snap.docChanges(), dirtyIdsRef.current)
         );
@@ -174,7 +136,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         setError(
           err instanceof Error
             ? err.message
-            : "Live conversation sync failed."
+            : strings.chat.syncFailed
         );
         setHistoryLoading(false);
       }
@@ -188,27 +150,16 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   }, [persona.id, persona.name, user.uid]);
 
   useEffect(() => {
-    // Auto-scroll to the bottom on each new message — but only when the user
-    // is already near the bottom. If they're scrolled up reading history, a
-    // smooth-scroll would yank them down and fight the pagination scroll
-    // restore in the useLayoutEffect below.
     const el = listRef.current;
     if (!el) return;
     if (!nearBottomRef.current) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, streamingContent, loading]);
 
-  // Clean up any in-flight request when the persona changes or the
-  // component unmounts.
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, [persona.id]);
 
-  // Restore scroll position after older messages are prepended. The
-  // ref is set just before setMessages() in loadOlder; this effect
-  // fires after the DOM updates and adjusts scrollTop so the
-  // previously-visible message stays in place. Skips if no ref is
-  // pending (e.g. on initial mount or normal new-message append).
   useLayoutEffect(() => {
     const pending = pendingScrollAdjustRef.current;
     if (!pending) return;
@@ -223,17 +174,11 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     abortRef.current?.abort();
   };
 
-  // ---- Pagination: load older messages -----------------------------
-
   const loadOlder = async () => {
     if (loadingMore || !hasMore || !cursor) return;
     const el = listRef.current;
     if (!el) return;
     setLoadingMore(true);
-    // Capture how far the user is from the bottom of the scroll
-    // container BEFORE we prepend. After the prepend, the scroll
-    // height grows by the prepended content's height; we restore the
-    // viewport so the user lands back on the same message.
     const distanceFromBottom = el.scrollHeight - el.scrollTop;
     pendingScrollAdjustRef.current = { distanceFromBottom };
     try {
@@ -250,26 +195,18 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       setCursor(snap.docs[snap.docs.length - 1] ?? null);
       setHasMore(snap.docs.length === PAGE_SIZE);
     } catch (err) {
-      // Drop the pending scroll adjustment so the next render doesn't
-      // try to restore from a stale snapshot.
       pendingScrollAdjustRef.current = null;
       logger.error("Failed to load older messages", err);
       setError(
-        err instanceof Error ? err.message : "Failed to load older messages."
+        err instanceof Error ? err.message : strings.chat.loadOlderFailed
       );
     } finally {
       setLoadingMore(false);
     }
   };
 
-  // Infinite scroll upward: when the user nears the top of the list
-  // and there are more pages, fetch the next batch. The threshold is
-  // generous (80px) so the fetch starts before the user actually hits
-  // the top, hiding latency.
   const handleListScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    // Update the near-bottom marker on every scroll so new-message auto-scroll
-    // only engages when the user is actually reading the newest messages.
     nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (!hasMore || loadingMore) return;
     if (el.scrollTop < 80) {
@@ -277,14 +214,8 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     }
   };
 
-  // ---- Edit / delete handlers --------------------------------------
-
   const startEdit = (m: ChatMessage) => {
-    if (!m.id) return; // local-only message — no edit affordance
-    // Mark this id as locally-dirty so the onSnapshot subscription
-    // ignores remote updates to it until we save or cancel. "Local
-    // unsaved wins" — the user's draft is preserved even if another
-    // device edits the same message.
+    if (!m.id) return;
     dirtyIdsRef.current.add(m.id);
     setEditingId(m.id);
     setEditingDraft(m.content);
@@ -303,7 +234,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     const id = editingId;
     const original = messages.find((m) => m.id === id);
     if (!original) return;
-    // Optimistic local update.
     setMessages((prev) =>
       prev.map((m) => (m.id === id ? { ...m, content: trimmed } : m))
     );
@@ -314,41 +244,31 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         doc(db, "conversations", persona.id, "messages", id),
         { content: trimmed }
       );
-      // Once the write resolves, drop the dirty flag. Any subsequent
-      // remote update to this id should be visible to the user again.
       dirtyIdsRef.current.delete(id);
     } catch (err) {
-      // Save failed — keep the dirty flag so the rollback below isn't
-      // clobbered by a remote event, then clear it after we restore.
       logger.error("Failed to update message", err);
       setMessages((prev) =>
         prev.map((m) => (m.id === id ? original : m))
       );
       dirtyIdsRef.current.delete(id);
       setError(
-        err instanceof Error ? err.message : "Failed to save edit."
+        err instanceof Error ? err.message : strings.chat.saveEditFailed
       );
     }
   };
 
   const deleteMessage = async (m: ChatMessage) => {
-    // Local-only message (cancelled partial assistant reply): no
-    // Firestore doc, just drop from local state. Confirmed via the
-    // same Confirm dialog so the UX is consistent.
     if (!m.id) {
       setMessages((prev) => prev.filter((x) => x !== m));
       return;
     }
     const id = m.id;
     const originalIndex = messages.findIndex((item) => item.id === id);
-    // Optimistic local removal.
     setMessages((prev) => prev.filter((x) => x.id !== id));
     if (editingId === id) {
       setEditingId(null);
       setEditingDraft("");
     }
-    // Block the snapshot from re-adding the doc mid-flight. If the
-    // delete fails we'll restore the local copy and clear the flag.
     dirtyIdsRef.current.add(id);
     try {
       await deleteDoc(
@@ -365,22 +285,16 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       });
       dirtyIdsRef.current.delete(id);
       setError(
-        err instanceof Error ? err.message : "Failed to delete message."
+        err instanceof Error ? err.message : strings.chat.deleteMessageFailed
       );
     }
   };
-
-  // ---- Send handler -----------------------------------------------
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
     if (!text || loading) return;
 
-    // A local-only key for this message. Lets us attach the Firestore
-    // doc id back to *this specific* message later, even if the user
-    // has sent more messages in the meantime. The key is never sent
-    // over the wire — it's a purely client-side identifier.
     const localKey = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const next: ChatMessage[] = [
       ...messages,
@@ -391,15 +305,8 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     setError(null);
     setStreamingContent("");
     setLoading(true);
-    // Reset the pending-assistant-id slot for this new turn. The SSE
-    // event: id handler will populate it.
     pendingAssistantIdRef.current = null;
 
-    // Persist the user message and capture its Firestore doc id so
-    // the user can edit/delete this turn later. The optimistic local
-    // update above renders immediately regardless of write success —
-    // when the write resolves we patch the local message (matched by
-    // its localKey) with the real Firestore id.
     addDoc(collection(db, "conversations", persona.id, "messages"), {
       ownerUid: user.uid,
       userId: user.uid,
@@ -417,13 +324,10 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         logger.error("Failed to persist user message", err);
       });
 
-    // Get a fresh access token for the chat route. The auth adapter
-    // refreshes the underlying ID token automatically when the cached
-    // value is within ~5 min of expiry.
     const idToken = await getAccessToken();
     if (!idToken) {
       setLoading(false);
-      setError("You're signed out. Please sign in again.");
+      setError(strings.chat.signedOut);
       return;
     }
 
@@ -444,7 +348,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     } catch (err) {
       setLoading(false);
       if (err instanceof DOMException && err.name === "AbortError") {
-        // User cancelled — keep whatever was streamed so far.
         if (streamingContent) {
           const assistantId = pendingAssistantIdRef.current ?? undefined;
           setMessages((prev) => [
@@ -455,13 +358,13 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         }
         return;
       }
-      setError(err instanceof Error ? err.message : "Network error.");
+      setError(err instanceof Error ? err.message : strings.chat.networkError);
       return;
     }
 
     if (res.status === 401) {
       setLoading(false);
-      setError("Session expired. Please sign in again.");
+      setError(strings.chat.sessionExpired);
       return;
     }
     if (!res.ok || !res.body) {
@@ -473,12 +376,10 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       } catch {
         // ignore
       }
-      setError(detail || `Request failed (${res.status}).`);
+      setError(detail || strings.chat.sendFailure);
       return;
     }
 
-    // Stream SSE events: lines come in groups separated by blank lines.
-    // Each event is "event: <name>\ndata: <json>\n\n".
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -502,7 +403,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        // SSE events are separated by a blank line.
         let idx;
         while ((idx = buffer.indexOf("\n\n")) !== -1) {
           const eventBlock = buffer.slice(0, idx);
@@ -510,7 +410,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
           const ev = parseSseEvent(eventBlock);
           if (!ev) continue;
           if (ev.event === "delta") {
-            // ev.data is unknown from the parser; narrow it to the shape we expect.
             const d = ev.data as { delta?: unknown };
             if (typeof d.delta === "string") {
               accumulated += d.delta;
@@ -519,20 +418,13 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
           } else if (ev.event === "done") {
             sawDone = true;
           } else if (ev.event === "id") {
-            // Server hands back the Firestore doc id of the just-
-            // persisted assistant reply. We don't try to patch an
-            // existing assistant message in place here because the
-            // streamed assistant message isn't appended to state until
-            // after this read loop exits (line 397 below). Instead,
-            // stash the id in a ref and apply it when we commit the
-            // streamed text.
             const d = ev.data as { id?: unknown };
             if (typeof d.id === "string") {
               pendingAssistantIdRef.current = d.id;
             }
           } else if (ev.event === "error") {
             const d = ev.data as { error?: unknown };
-            setError(typeof d.error === "string" ? d.error : "Stream error.");
+            setError(typeof d.error === "string" ? d.error : strings.chat.streamError);
             setLoading(false);
             setStreamingContent("");
             return;
@@ -545,12 +437,11 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         return;
       }
       setLoading(false);
-      setError(err instanceof Error ? err.message : "Stream interrupted.");
+      setError(err instanceof Error ? err.message : strings.chat.streamInterrupted);
       setStreamingContent("");
       return;
     }
 
-    // Stream completed. Commit the accumulated text as a real message.
     setLoading(false);
     const assistantId = pendingAssistantIdRef.current ?? undefined;
     setMessages((prev) => [
@@ -559,11 +450,9 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     ]);
     setStreamingContent("");
     if (!sawDone && !accumulated) {
-      setError("The model returned an empty reply.");
+      setError(strings.chat.emptyReply);
     }
   };
-
-  // ---- Render ------------------------------------------------------
 
   return (
     <div className="max-w-2xl mx-auto bg-white rounded shadow">
@@ -571,7 +460,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         <div>
           <div className="flex items-center space-x-2">
             <span className="text-lg font-semibold text-gray-900">
-              Speaking with: {persona.name}
+              {strings.chat.header(persona.name)}
             </span>
             {profile?.relationship && (
               <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
@@ -579,7 +468,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-500">simulation / character — not a real person</div>
+          <div className="text-xs text-gray-500">{strings.chat.disclaimer}</div>
         </div>
         <div className="flex space-x-2">
           <button
@@ -594,7 +483,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
                 : "hover:bg-gray-50 text-gray-700"
             }`}
           >
-            {showProfile ? "Hide profile" : "View profile"}
+            {showProfile ? strings.chat.hideProfile : strings.chat.viewProfile}
           </button>
           <button
             type="button"
@@ -608,14 +497,14 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
                 : "hover:bg-gray-50 text-gray-700"
             }`}
           >
-            {showMemoryInput ? "Hide memories" : "Memories"}
+            {showMemoryInput ? strings.chat.hideMemories : strings.chat.memories}
           </button>
           <button
             type="button"
             onClick={onBack}
             className="text-sm border px-3 py-1 rounded hover:bg-gray-50 text-gray-700"
           >
-            Change persona
+            {strings.chat.changePersona}
           </button>
         </div>
       </header>
@@ -641,17 +530,17 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       >
         {loadingMore && (
           <p className="text-center text-gray-500 text-xs pt-2">
-            Loading earlier messages…
+            {strings.chat.loadingEarlier}
           </p>
         )}
         {historyLoading && messages.length === 0 && !streamingContent && (
           <p className="text-center text-gray-500 text-sm pt-12">
-            Loading conversation…
+            {strings.chat.loadingConversation}
           </p>
         )}
         {!historyLoading && messages.length === 0 && !streamingContent && (
           <p className="text-center text-gray-500 text-sm pt-12">
-            Start the conversation. {persona.name.split(" ")[0]} will reply in the style you described.
+            {strings.chat.emptyPrompt(persona.name)}
           </p>
         )}
         {messages.map((m, i) => {
@@ -692,7 +581,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         {loading && !streamingContent && (
           <div className="flex justify-start">
             <div className="bg-white text-gray-500 border px-3 py-2 rounded shadow-sm italic">
-              {persona.name.split(" ")[0]} is typing…
+              {strings.chat.typing(persona.name)}
             </div>
           </div>
         )}
@@ -714,8 +603,8 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
 
       <Confirm
         open={pendingDelete !== null}
-        title="Delete this message?"
-        message="This message will be removed from the conversation and cannot be undone."
+        title={strings.chat.confirmDeleteTitle}
+        message={strings.chat.confirmDeleteMessage}
         onConfirm={() => {
           if (pendingDelete) deleteMessage(pendingDelete);
           setPendingDelete(null);

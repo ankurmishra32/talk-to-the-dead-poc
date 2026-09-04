@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { strings } from "../lib/strings";
 
 type Props = {
   open: boolean;
@@ -25,8 +26,8 @@ export default function Confirm({
   open,
   title,
   message,
-  confirmLabel = "Delete",
-  cancelLabel = "Cancel",
+  confirmLabel = strings.confirm.delete,
+  cancelLabel = strings.confirm.cancel,
   onConfirm,
   onCancel,
 }: Props) {
@@ -53,7 +54,6 @@ export default function Confirm({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="presentation"
     >
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40"
         onClick={onCancel}

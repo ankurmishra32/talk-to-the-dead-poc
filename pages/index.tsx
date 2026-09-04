@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../lib/auth/useAuth";
+import { strings } from "../lib/strings";
 
 export default function Home() {
   const [email, setEmail] = useState("");
@@ -21,7 +22,7 @@ export default function Home() {
       }
       router.push("/dashboard");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Something went wrong.";
+      const message = err instanceof Error ? err.message : strings.auth.genericError;
       setError(message);
     }
   };
@@ -36,21 +37,19 @@ export default function Home() {
               &#x2764;&#xFE0F;
             </span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Remember</h1>
+          <h1 className="text-3xl font-bold text-gray-900">{strings.common.appName}</h1>
           <p className="text-gray-500 mt-1 text-sm">
-            A space to keep their voice alive
+            {strings.common.tagline}
           </p>
         </div>
 
         {/* Card */}
         <div className="bg-white shadow-lg rounded-xl p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">
-            {isLogin ? "Welcome back" : "Create your account"}
+            {isLogin ? strings.auth.welcomeBack : strings.auth.createAccount}
           </h2>
           <p className="text-sm text-gray-500 mb-6">
-            {isLogin
-              ? "Sign in to continue your conversations."
-              : "Start remembering someone today."}
+            {isLogin ? strings.auth.signInSubtitle : strings.auth.createAccountSubtitle}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -59,7 +58,7 @@ export default function Home() {
                 htmlFor="email"
                 className="block text-sm font-medium text-gray-700 mb-1"
               >
-                Email
+                {strings.auth.emailLabel}
               </label>
               <input
                 id="email"
@@ -67,7 +66,7 @@ export default function Home() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={strings.auth.emailPlaceholder}
                 className="w-full border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -77,7 +76,7 @@ export default function Home() {
                 htmlFor="password"
                 className="block text-sm font-medium text-gray-700 mb-1"
               >
-                Password
+                {strings.auth.passwordLabel}
               </label>
               <input
                 id="password"
@@ -85,7 +84,7 @@ export default function Home() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Your password"
+                placeholder={strings.auth.passwordPlaceholder}
                 className="w-full border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -100,7 +99,7 @@ export default function Home() {
               type="submit"
               className="w-full bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 font-medium transition-colors"
             >
-              {isLogin ? "Sign in" : "Create account"}
+              {isLogin ? strings.auth.signInButton : strings.auth.createAccountButton}
             </button>
           </form>
 
@@ -109,16 +108,14 @@ export default function Home() {
               onClick={() => setIsLogin(!isLogin)}
               className="text-sm text-blue-600 hover:text-blue-800 font-medium"
             >
-              {isLogin
-                ? "Don't have an account? Sign up"
-                : "Already have an account? Sign in"}
+              {isLogin ? strings.auth.noAccount : strings.auth.alreadyHaveAccount}
             </button>
           </div>
         </div>
 
         {/* Footer note */}
         <p className="text-center text-xs text-gray-400 mt-6">
-          Your conversations are private and stored securely.
+          {strings.common.privacyNote}
         </p>
       </div>
     </div>

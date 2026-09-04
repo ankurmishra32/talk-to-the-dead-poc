@@ -1,3 +1,5 @@
+import { strings } from "../../lib/strings";
+
 type Props = {
   input: string;
   loading: boolean;
@@ -21,7 +23,7 @@ export default function ChatComposer({
   return (
     <form onSubmit={onSend} className="p-4 border-t flex space-x-2">
       <label htmlFor="chat-message" className="sr-only">
-        Message
+        {strings.chat.composeAria}
       </label>
       <textarea
         id="chat-message"
@@ -33,7 +35,7 @@ export default function ChatComposer({
             onSend(e as unknown as React.FormEvent);
           }
         }}
-        placeholder="Type a message…"
+        placeholder={strings.chat.composePlaceholder}
         rows={2}
         maxLength={4000}
         className="flex-1 border p-2 rounded resize-none"
@@ -45,7 +47,7 @@ export default function ChatComposer({
           onClick={onCancel}
           className="bg-gray-700 text-white px-4 rounded hover:bg-gray-800"
         >
-          Cancel
+          {strings.chat.cancel}
         </button>
       ) : (
         <button
@@ -53,7 +55,7 @@ export default function ChatComposer({
           disabled={!input.trim()}
           className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700 disabled:bg-gray-400"
         >
-          Send
+          {strings.chat.send}
         </button>
       )}
     </form>

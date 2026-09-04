@@ -17,33 +17,16 @@ import { mapPersonaDoc, reconcilePersonas } from "../lib/personas";
 import type { PersonaItem, PersonaReference } from "../lib/types";
 import { createLogger } from "../lib/logger";
 import Confirm from "./Confirm";
+import { strings } from "../lib/strings";
 
 const logger = createLogger("PersonaSelection");
 
-const RELATIONSHIPS = [
-  "Mother",
-  "Father",
-  "Grandparent",
-  "Sibling",
-  "Friend",
-  "Partner",
-  "Other",
-] as const;
-
-const LANGUAGES = ["Hindi", "English", "Hinglish", "Other"] as const;
-
-const SPEECH_STYLES = [
-  "Quiet",
-  "Talkative",
-  "Direct",
-  "Playful",
-  "Sarcastic",
-  "Formal",
-  "Emotional",
-  "Blunt",
-] as const;
-
-const STEP_LABELS = ["Who they were", "How they spoke", "What they said", "A memory"];
+const STEP_LABELS = [
+  strings.persona.steps.identity,
+  strings.persona.steps.speech,
+  strings.persona.steps.evidence,
+  strings.persona.steps.memory,
+];
 
 type SpeechExampleInput = {
   phrase: string;
@@ -192,7 +175,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId) {
-      setError("You must be signed in to save a persona.");
+      setError(strings.persona.signOutRequired);
       return;
     }
     setError(null);
@@ -201,7 +184,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       const p = item.phrase.trim();
       const c = item.context.trim();
       if (p && !c) {
-        setError(`Please specify when they would say "${p}" (the situation or trigger).`);
+        setError(strings.persona.missingContext(p));
         return;
       }
     }
@@ -299,29 +282,29 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
     <div className="space-y-5">
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          What did you call them?
+          {strings.persona.identity.nameLabel}
         </label>
         <input
           type="text"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Mom, Grandpa, Alex"
+          placeholder={strings.persona.identity.namePlaceholder}
           className="w-full border border-gray-300 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Who were they to you?
+          {strings.persona.identity.relationshipLabel}
         </label>
         <select
           value={relationship}
           onChange={(e) => setRelationship(e.target.value)}
           className="w-full border border-gray-300 p-2.5 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         >
-          <option value="">Choose...</option>
-          {RELATIONSHIPS.map((r) => (
+          <option value="">{strings.persona.relationshipsEmptyOption}</option>
+          {strings.persona.relationships.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
@@ -331,13 +314,13 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          What did they call you?
+          {strings.persona.identity.theyCalledYouLabel}
         </label>
         <input
           type="text"
           value={theyCalledYou}
           onChange={(e) => setTheyCalledYou(e.target.value)}
-          placeholder="e.g. sweetie, kiddo, buddy"
+          placeholder={strings.persona.identity.theyCalledYouPlaceholder}
           className="w-full border border-gray-300 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
@@ -348,10 +331,10 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
     <div className="space-y-6">
       <div>
         <span className="block text-sm font-medium text-gray-700 mb-2">
-          Languages they spoke
+          {strings.persona.speech.languagesLabel}
         </span>
         <div className="flex flex-wrap gap-2">
-          {LANGUAGES.map((lang) => {
+          {strings.persona.languages.map((lang) => {
             const on = languages.includes(lang);
             return (
               <button
@@ -373,10 +356,10 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
       <div>
         <span className="block text-sm font-medium text-gray-700 mb-2">
-          How did they usually speak?
+          {strings.persona.speech.mannerLabel}
         </span>
         <div className="flex flex-wrap gap-2">
-          {SPEECH_STYLES.map((style) => {
+          {strings.persona.speechStyles.map((style) => {
             const on = howTheySpoke.includes(style);
             return (
               <button
@@ -401,8 +384,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   const renderStep2 = () => (
     <div className="space-y-4">
       <p className="text-xs text-gray-500">
-        Share phrases they used and the specific situations when they said them.
-        This helps the AI respond authentically instead of repeating catchphrases out of place.
+        {strings.persona.evidence.intro}
       </p>
 
       <div className="space-y-4">
@@ -413,7 +395,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Example {i + 1}
+                {strings.persona.evidence.exampleHeading(i + 1)}
               </span>
               {speechExamples.length > 1 && (
                 <button
@@ -424,14 +406,14 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                   }}
                   className="text-xs text-red-500 hover:text-red-700"
                 >
-                  Remove
+                  {strings.persona.evidence.remove}
                 </button>
               )}
             </div>
 
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                What is something they used to say?
+                {strings.persona.evidence.phraseLabel}
               </label>
               <input
                 type="text"
@@ -443,8 +425,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                 }}
                 placeholder={
                   i === 0
-                    ? "e.g. \"That's too expensive — who's paying for that?\""
-                    : "e.g. \"Have you eaten yet?\""
+                    ? strings.persona.evidence.phrasePlaceholderPrimary
+                    : strings.persona.evidence.phrasePlaceholderSecondary
                 }
                 className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -452,7 +434,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                When would they say it?
+                {strings.persona.evidence.contextLabel}
               </label>
               <input
                 type="text"
@@ -464,8 +446,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                 }}
                 placeholder={
                   i === 0
-                    ? "e.g. \"When I mentioned buying something expensive\""
-                    : "e.g. \"Whenever I came home from work\""
+                    ? strings.persona.evidence.contextPlaceholderPrimary
+                    : strings.persona.evidence.contextPlaceholderSecondary
                 }
                 className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -477,15 +459,15 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
               onClick={() => toggleOptional(i)}
               className="text-xs text-blue-600 hover:text-blue-800 font-medium"
             >
-              {showOptional[i] ? "Less details" : "More details"}
+              {showOptional[i] ? strings.persona.evidence.lessDetails : strings.persona.evidence.moreDetails}
             </button>
 
             {showOptional[i] && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
-                    What did they mean?{" "}
-                    <span className="text-gray-400 font-normal">(optional)</span>
+                    {strings.persona.evidence.meaningLabel}{" "}
+                    <span className="text-gray-400 font-normal">{strings.persona.evidence.optionalSuffix}</span>
                   </label>
                   <input
                     type="text"
@@ -497,8 +479,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                     }}
                     placeholder={
                       i === 0
-                        ? "e.g. Disapproval: they thought I was wasting money"
-                        : "e.g. Care: they wanted to know I was okay"
+                        ? strings.persona.evidence.meaningPlaceholderPrimary
+                        : strings.persona.evidence.meaningPlaceholderSecondary
                     }
                     className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -506,8 +488,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
-                    How did they sound?{" "}
-                    <span className="text-gray-400 font-normal">(optional)</span>
+                    {strings.persona.evidence.toneLabel}{" "}
+                    <span className="text-gray-400 font-normal">{strings.persona.evidence.optionalSuffix}</span>
                   </label>
                   <input
                     type="text"
@@ -519,8 +501,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                     }}
                     placeholder={
                       i === 0
-                        ? "e.g. Frustrated, direct"
-                        : "e.g. Warm, caring"
+                        ? strings.persona.evidence.tonePlaceholderPrimary
+                        : strings.persona.evidence.tonePlaceholderSecondary
                     }
                     className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -528,8 +510,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">
-                    What would they typically do/say next?{" "}
-                    <span className="text-gray-400 font-normal">(optional)</span>
+                    {strings.persona.evidence.reactionLabel}{" "}
+                    <span className="text-gray-400 font-normal">{strings.persona.evidence.optionalSuffix}</span>
                   </label>
                   <input
                     type="text"
@@ -541,8 +523,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                     }}
                     placeholder={
                       i === 0
-                        ? "e.g. \"Scolds me for wasting money, asks what I needed it for\""
-                        : "e.g. \"Insists I sit down and rest before doing anything else\""
+                        ? strings.persona.evidence.reactionPlaceholderPrimary
+                        : strings.persona.evidence.reactionPlaceholderSecondary
                     }
                     className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -563,7 +545,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
           }}
           className="text-sm text-blue-600 hover:text-blue-800 font-medium"
         >
-          + Add another example
+          {strings.persona.evidence.addAnother}
         </button>
       </div>
     </div>
@@ -572,13 +554,12 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   const renderStep3 = () => (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        A moment, a habit, or anything that made them who they were.
-        This helps the AI understand their personality beyond words.
+        {strings.persona.memory.intro}
       </p>
       <textarea
         value={distinctiveStory}
         onChange={(e) => setDistinctiveStory(e.target.value)}
-        placeholder="Tell us something you remember about them..."
+        placeholder={strings.persona.memory.textareaPlaceholder}
         className="w-full border border-gray-300 p-2.5 rounded-lg h-28 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
     </div>
@@ -592,22 +573,22 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow-lg space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Remember someone</h2>
+        <h2 className="text-2xl font-bold text-gray-900">{strings.persona.heading}</h2>
         <button
           onClick={handleSignOut}
           className="text-sm text-gray-500 hover:text-gray-700"
         >
-          Sign out
+          {strings.common.signOut}
         </button>
       </div>
 
       {/* Existing personas list */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-600 mb-2">Your people</h3>
+        <h3 className="text-sm font-semibold text-gray-600 mb-2">{strings.persona.yourPeople}</h3>
         {listLoading ? (
-          <p className="text-gray-500 text-sm">Loading...</p>
+          <p className="text-gray-500 text-sm">{strings.persona.loadingList}</p>
         ) : existing.length === 0 ? (
-          <p className="text-gray-500 text-sm">No one remembered yet. Create one below.</p>
+          <p className="text-gray-500 text-sm">{strings.persona.emptyList}</p>
         ) : (
           <ul className="divide-y border border-gray-200 rounded-lg overflow-hidden">
             {existing.map((p) => (
@@ -624,21 +605,21 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                     onClick={() => startEdit(p)}
                     className="text-sm border border-gray-300 text-gray-700 px-2.5 py-1 rounded-lg hover:bg-gray-50"
                   >
-                    Edit
+                    {strings.common.edit}
                   </button>
                   <button
                     type="button"
                     onClick={() => setPendingDelete(p)}
                     className="text-sm border border-red-200 text-red-600 px-2.5 py-1 rounded-lg hover:bg-red-50"
                   >
-                    Delete
+                    {strings.common.delete}
                   </button>
                   <button
                     type="button"
                     onClick={() => onSelect(p)}
                     className="bg-blue-600 text-white text-sm px-3 py-1 rounded-lg hover:bg-blue-700 font-medium"
                   >
-                    Talk
+                    {strings.persona.talk}
                   </button>
                 </div>
               </li>
@@ -651,7 +632,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       <section ref={formRef} className="pt-4 border-t">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-lg font-semibold text-gray-900">
-            {editingId ? `Edit ${name ? `"${name}"` : "Persona"}` : "Remember someone new"}
+            {editingId ? (name ? strings.persona.editHeading(name) : strings.persona.editHeadingGeneric) : strings.persona.createNew}
           </h3>
           {editingId && (
             <button
@@ -659,14 +640,12 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
               onClick={resetForm}
               className="text-xs text-gray-500 hover:text-gray-700"
             >
-              Cancel edit
+              {strings.persona.cancelEdit}
             </button>
           )}
         </div>
         <p className="mb-5 text-gray-500 text-sm">
-          {editingId
-            ? "Update their details below."
-            : "The more you share, the closer their voice will feel."}
+          {editingId ? strings.persona.editSubtitle : strings.persona.createSubtitle}
         </p>
 
         {/* Progress indicator */}
@@ -720,7 +699,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                   onClick={prevStep}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
                 >
-                  Back
+                  {strings.common.back}
                 </button>
               )}
             </div>
@@ -732,7 +711,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                   disabled={loading}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
                 >
-                  Cancel
+                  {strings.common.cancel}
                 </button>
               )}
               {currentStep < 3 ? (
@@ -741,7 +720,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                   onClick={nextStep}
                   className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors"
                 >
-                  Next
+                  {strings.common.next}
                 </button>
               ) : (
                 <button
@@ -749,7 +728,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
                   disabled={loading}
                   className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium text-sm transition-colors"
                 >
-                  {loading ? "Saving..." : editingId ? "Save changes" : "Remember them"}
+                  {loading ? strings.persona.saving : editingId ? strings.persona.saveChangesButton : strings.persona.rememberThemButton}
                 </button>
               )}
             </div>
@@ -759,8 +738,8 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
       <Confirm
         open={pendingDelete !== null}
-        title={`Delete "${pendingDelete?.name ?? "persona"}"?`}
-        message="This persona and its conversation history will be removed and cannot be undone."
+        title={pendingDelete ? strings.persona.confirmDeleteTitle(pendingDelete.name) : ""}
+        message={strings.persona.confirmDeleteMessage}
         onConfirm={() => {
           if (pendingDelete) handleDelete(pendingDelete);
           setPendingDelete(null);

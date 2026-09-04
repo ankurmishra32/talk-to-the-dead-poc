@@ -4,6 +4,7 @@ import { useAuth } from "../lib/auth/useAuth";
 import type { AuthUser } from "../lib/auth";
 import PersonaSelection from "../components/PersonaSelection";
 import Chat from "../components/Chat";
+import { strings } from "../lib/strings";
 
 type Persona = {
   id: string;
@@ -24,7 +25,7 @@ export default function Dashboard() {
   if (loading || !user) {
     return (
       <div className="p-6">
-        <p>Loading…</p>
+        <p>{strings.dashboard.loading}</p>
       </div>
     );
   }

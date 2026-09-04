@@ -15,6 +15,7 @@ import {
 import { db } from "../firebase/config";
 import { createLogger } from "../lib/logger";
 import Confirm from "./Confirm";
+import { strings } from "../lib/strings";
 
 const logger = createLogger("MemoryInput");
 
@@ -43,10 +44,8 @@ export default function MemoryInput({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // Memory awaiting destructive confirmation for deletion.
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
-  // Load existing memories for this persona
   useEffect(() => {
     let cancelled = false;
     setListLoading(true);
@@ -54,9 +53,6 @@ export default function MemoryInput({
 
     async function loadMemories() {
       try {
-        // Scope to this persona when one is given (a compound index on
-        // (userId, personaId, createdAt desc) covers it). Without a persona
-        // we fall back to the user's most recent memories.
         const q = persona?.id
           ? query(
               collection(db, "memories"),
@@ -128,7 +124,7 @@ export default function MemoryInput({
       setTimeout(() => setSavedSuccess(false), 2000);
     } catch (err) {
       logger.error("Failed to save memory", err);
-      setError(err instanceof Error ? err.message : "Failed to save memory.");
+      setError(err instanceof Error ? err.message : strings.memoryInput.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -161,7 +157,7 @@ export default function MemoryInput({
       setEditingText("");
     } catch (err) {
       logger.error("Failed to update memory", err);
-      setError(err instanceof Error ? err.message : "Failed to update memory.");
+      setError(err instanceof Error ? err.message : strings.memoryInput.updateFailed);
     }
   };
 
@@ -177,9 +173,14 @@ export default function MemoryInput({
       }
     } catch (err) {
       logger.error("Failed to delete memory", err);
-      setError(err instanceof Error ? err.message : "Failed to delete memory.");
+      setError(err instanceof Error ? err.message : strings.memoryInput.deleteFailed);
     }
   };
+
+  const addMemoryAction = strings.memoryInput.addMemoryAction;
+  const addMemoryFor = persona?.name
+    ? ` ${strings.memoryInput.addMemoryFor(persona.name)}`
+    : "";
 
   return (
     <div className="space-y-4">
@@ -187,10 +188,10 @@ export default function MemoryInput({
       <form onSubmit={handleAddMemory} className="space-y-3">
         <div className="flex items-center justify-between">
           <label htmlFor="memory-text" className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
-            Add a memory {persona?.name ? `for ${persona.name}` : ""}
+            {addMemoryAction}{addMemoryFor}
           </label>
           <span className="text-xs text-gray-500">
-            Helps the AI remember shared moments
+            {strings.memoryInput.helper}
           </span>
         </div>
         <textarea
@@ -198,8 +199,8 @@ export default function MemoryInput({
           className="w-full border p-2.5 rounded text-sm bg-white"
           placeholder={
             persona?.name
-              ? `Write a memory, habit, or story about ${persona.name}…`
-              : "Write a memory here…"
+              ? strings.memoryInput.textareaPlaceholderFor(persona.name)
+              : strings.memoryInput.textareaPlaceholder
           }
           rows={3}
           value={text}
@@ -212,11 +213,11 @@ export default function MemoryInput({
             type="submit"
             disabled={!text.trim() || saving}
           >
-            {saving ? "Saving…" : "Save Memory"}
+            {saving ? strings.memoryInput.saving : strings.memoryInput.saveMemory}
           </button>
           {savedSuccess && (
             <span className="text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded border border-green-200">
-              Memory saved!
+              {strings.memoryInput.savedSuccess}
             </span>
           )}
         </div>
@@ -232,15 +233,15 @@ export default function MemoryInput({
       <div className="pt-3 border-t space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-            Saved Memories ({memories.length})
+            {strings.memoryInput.savedMemoriesHeading(memories.length)}
           </span>
         </div>
 
         {listLoading ? (
-          <p className="text-xs text-gray-500 italic py-2">Loading saved memories…</p>
+          <p className="text-xs text-gray-500 italic py-2">{strings.memoryInput.loadingList}</p>
         ) : memories.length === 0 ? (
           <p className="text-xs text-gray-500 italic py-2">
-            No memories saved yet for this persona.
+            {strings.memoryInput.emptyList}
           </p>
         ) : (
           <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -255,7 +256,7 @@ export default function MemoryInput({
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
                       rows={3}
-                      aria-label="Edit memory"
+                      aria-label={strings.memoryInput.editMemoryAria}
                       className="w-full border p-2 rounded text-xs bg-white resize-none"
                     />
                     <div className="flex justify-end space-x-2">
@@ -264,7 +265,7 @@ export default function MemoryInput({
                         onClick={cancelEdit}
                         className="border px-2.5 py-1 rounded hover:bg-gray-50 text-gray-600"
                       >
-                        Cancel
+                        {strings.common.cancel}
                       </button>
                       <button
                         type="button"
@@ -272,7 +273,7 @@ export default function MemoryInput({
                         disabled={!editingText.trim()}
                         className="bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 disabled:bg-gray-400 font-medium"
                       >
-                        Save
+                        {strings.common.save}
                       </button>
                     </div>
                   </div>
@@ -285,14 +286,14 @@ export default function MemoryInput({
                         onClick={() => startEdit(m)}
                         className="text-gray-600 hover:text-gray-900 border px-1.5 py-0.5 rounded text-[11px] bg-gray-50 hover:bg-gray-100"
                       >
-                        Edit
+                        {strings.common.edit}
                       </button>
                       <button
                         type="button"
                         onClick={() => setPendingDeleteId(m.id)}
                         className="text-red-600 hover:text-red-800 border border-red-200 px-1.5 py-0.5 rounded text-[11px] bg-red-50 hover:bg-red-100"
                       >
-                        Delete
+                        {strings.common.delete}
                       </button>
                     </div>
                   </div>
@@ -305,8 +306,8 @@ export default function MemoryInput({
 
       <Confirm
         open={pendingDeleteId !== null}
-        title="Delete this memory?"
-        message="This memory will be removed and cannot be undone."
+        title={strings.memoryInput.confirmDeleteTitle}
+        message={strings.memoryInput.confirmDeleteMessage}
         onConfirm={() => {
           if (pendingDeleteId) handleDeleteMemory(pendingDeleteId);
           setPendingDeleteId(null);

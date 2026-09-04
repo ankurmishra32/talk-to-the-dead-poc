@@ -1,3 +1,4 @@
+import { strings } from "../../lib/strings";
 import type { ChatMessage } from "../../lib/types";
 
 type Props = {
@@ -45,7 +46,7 @@ export default function MessageBubble({
             onChange={(e) => onDraftChange(e.target.value)}
             rows={3}
             className="w-full border p-2 rounded resize-none"
-            aria-label="Edit message"
+            aria-label={strings.messageBubble.editAria}
           />
           <div className="flex justify-end space-x-2">
             <button
@@ -53,7 +54,7 @@ export default function MessageBubble({
               onClick={onCancelEdit}
               className="text-sm border px-3 py-1 rounded hover:bg-gray-50"
             >
-              Cancel
+              {strings.common.cancel}
             </button>
             <button
               type="button"
@@ -61,7 +62,7 @@ export default function MessageBubble({
               disabled={!editingDraft.trim()}
               className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:bg-gray-400"
             >
-              Save
+              {strings.common.save}
             </button>
           </div>
         </div>
@@ -76,10 +77,6 @@ export default function MessageBubble({
           >
             {m.content}
           </div>
-          {/* Hover-revealed action row. We use group-hover so the
-              affordances appear together. Buttons are always present in
-              the DOM (just hidden) so keyboard users can tab to them —
-              focus-visible shows them too. */}
           {(canEdit || canDelete) && (
             <div
               className={`absolute -top-2 ${m.role === "user" ? "left-0" : "right-0"} flex space-x-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity`}
@@ -88,20 +85,20 @@ export default function MessageBubble({
                 <button
                   type="button"
                   onClick={onEdit}
-                  aria-label="Edit message"
+                  aria-label={strings.messageBubble.editAria}
                   className="bg-white border text-gray-700 text-xs px-2 py-0.5 rounded shadow-sm hover:bg-gray-50 focus:opacity-100"
                 >
-                  Edit
+                  {strings.common.edit}
                 </button>
               )}
               {canDelete && (
                 <button
                   type="button"
                   onClick={onDelete}
-                  aria-label="Delete message"
+                  aria-label={strings.messageBubble.deleteAria}
                   className="bg-white border text-red-600 text-xs px-2 py-0.5 rounded shadow-sm hover:bg-red-50 focus:opacity-100"
                 >
-                  Delete
+                  {strings.common.delete}
                 </button>
               )}
             </div>
