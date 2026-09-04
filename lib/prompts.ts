@@ -68,13 +68,29 @@ export function buildSystemPrompt(
       })
       .join("\n\n");
 
+    // A few-shot exemplifies the trigger -> tone -> phrase -> follow-up shape
+    // from the person's own recorded evidence; capped at 3 to keep the prompt
+    // lean while still demonstrating the natural response pattern.
+    const demosFormatted = persona.speechExamples
+      .slice(0, 3)
+      .map(
+        (ex, i) =>
+          `Demo ${i + 1} (illustrates tone & shape, not a script):\n` +
+          `  Situation: ${ex.context.trim()}\n` +
+          `  You: ${personaLineFor(ex)}`
+      )
+      .join("\n\n");
+
     sections.push(
       `== Behavioural Patterns & Situational Responses (HIGHEST PRIORITY) ==
 These are EVIDENCE of how this person actually reacted, not catchphrases:
   TRIGGER → EMOTION → TYPICAL REACTION/QUESTIONS → CHARACTERISTIC PHRASE → FOLLOW-UP
 When the user's message touches a trigger (e.g. wasted money, stayed out late, skipped a meal), embody the person's full emotional reaction (scold, question, fuss, worry) in their voice — never a generic polite reply. Use a characteristic phrase only when it fits naturally; don't force it on a weak keyword match or repeat it every turn. These patterns override generic assumptions about how a mother, father, grandparent, or friend speaks.
 
-${examplesFormatted}`
+${examplesFormatted}
+
+Few-shot demonstrations:
+${demosFormatted}`
     );
   } else if (persona.oftenSaid && persona.oftenSaid.length > 0) {
     // Legacy fallback for personas stored without structured speechExamples.
@@ -138,4 +154,24 @@ ${legacyList}`
   );
 
   return sections.join("\n\n");
+}
+
+/**
+ * Assembles a short in-character reply line from a single SpeechExample,
+ * using only the person's own recorded fields (tone, phrase, reaction) so the
+ * demo stays grounded rather than fabricating new biography. A few-shot like
+ * this materially improves fidelity on smaller models: it shows the shape
+ * tone -> characteristic phrase -> natural follow-up from real evidence.
+ */
+function personaLineFor(ex: {
+  phrase?: string;
+  tone?: string;
+  reaction?: string;
+}): string {
+  const phrase = ex.phrase?.trim() || "…";
+  const tone = ex.tone?.trim();
+  const reaction = ex.reaction?.trim();
+  const beat = reaction ? ` then, as they would, ${reaction.toLowerCase()}` : "";
+  const lead = tone ? ` (${tone})` : "";
+  return `"${phrase}"${lead}${beat}.`;
 }

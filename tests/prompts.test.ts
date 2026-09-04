@@ -62,6 +62,51 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("questions the unnecessary expense");
   });
 
+  it("adds a few-shot example exchange for a structured speech example", () => {
+    const persona = {
+      ...basePersona(),
+      speechExamples: [
+        {
+          context: "expensive purchase",
+          phrase: "bill tumhara baap bharega",
+          tone: "irritated",
+          reaction: "questions the unnecessary expense",
+        },
+      ],
+    };
+    const prompt = buildSystemPrompt(persona, []);
+    expect(prompt).toContain("Few-shot demonstrations:");
+    expect(prompt).toContain("Demo 1 (illustrates tone & shape");
+    expect(prompt).toContain("Situation: expensive purchase");
+    expect(prompt).toContain("\"bill tumhara baap bharega\"");
+    expect(prompt).toContain("(irritated)");
+    expect(prompt).toContain("questions the unnecessary expense");
+  });
+
+  it("caps few-shot demonstrations at three", () => {
+    const speechExamples = Array.from({ length: 5 }, (_, i) => ({
+      context: `trigger ${i}`,
+      phrase: `phrase ${i}`,
+    }));
+    const prompt = buildSystemPrompt({ ...basePersona(), speechExamples }, []);
+    // All five patterns are listed...
+    for (let i = 0; i < 5; i++) {
+      expect(prompt).toContain(`Pattern ${i + 1}:`);
+      expect(prompt).toContain(`Trigger / Situation: trigger ${i}`);
+    }
+    // ...but only the first three carry a demo.
+    const demoCount = (prompt.match(/Demo \d+ \(illustrates/g) || []).length;
+    expect(demoCount).toBe(3);
+  });
+
+  it("adds no few-shot demo when only legacy oftenSaid is present", () => {
+    const prompt = buildSystemPrompt(
+      { ...basePersona(), oftenSaid: ["khana kha liya?"] },
+      []
+    );
+    expect(prompt).not.toContain("Few-shot demonstrations:");
+  });
+
   it("does not include behavioral section when no examples or oftenSaid", () => {
     const prompt = buildSystemPrompt(basePersona(), []);
     expect(prompt).not.toContain("BEHAVIORAL EXECUTION RULE");
