@@ -62,6 +62,9 @@ must be entered in the dashboard.
 | `OLLAMA_HOST` | depends | only if `LLM_PROVIDER=ollama` (default `http://localhost:11434`) |
 | `OLLAMA_MODEL` | depends | only if `LLM_PROVIDER=ollama` (default `llama3.2`) |
 | `AUTH_PROVIDER` | no (default) | `firebase` |
+| `UPSTASH_REDIS_REST_URL` | recommended | Shared rate-limiter store (free tier). Without it, limits reset per serverless instance. |
+| `UPSTASH_REDIS_REST_TOKEN` | depends | token for the Upstash DB; required if `UPSTASH_REDIS_REST_URL` is set |
+| `RATE_LIMIT_PER_MINUTE` / `RATE_LIMIT_BURST` / `RATE_LIMIT_CONCURRENCY_PER_UID` / `RATE_LIMIT_CONCURRENCY_GLOBAL` | optional | tune the limits (defaults: 10/min, burst 5, 2/UID, 10 global) |
 
 > **Important:** the default `LLM_PROVIDER=lm-studio` and `OLLAMA_HOST`/
 > `LM_STUDIO_BASE_URL` point at `localhost`. In the cloud those hosts do not
@@ -108,14 +111,46 @@ dashboard (it will auto-deploy).
 - If the chat errors, check Vercel function logs — the most common cause is the
   LLM provider not being reachable from the serverless function (step 3).
 
-## Notes / gotchas
+## Hardening & cost control (do this before real traffic)
+
+The live URL is publicly reachable. Anyone — including bots — can hit the
+model at your expense. The code already: authenticates every `/api/chat` call
+before any LLM work, rejects oversized inputs, enforces persona ownership, and
+rate-limits per verified UID. The remaining controls are configuration:
+
+1. **Shared rate limiting (gap: serverless instances reset counters).** Create a
+   free Upstash Redis DB (https://console.upstash.com/) and set
+   `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`. `lib/rate-limit.ts`
+   then enforces the same limits across every instance. This is the single
+   highest-value fix for cost control — without it an abuser can get roughly
+   `10 × (number of warm instances)` requests/minute and the global 10-stream
+   cap is likewise per-instance.
+2. **Disable public signup (gap: open email/password signup lets strangers get a
+   token and chat at your cost).** For a private/family PoC, turn off anonymous
+   signup in Firebase Auth and create the accounts you want manually (Firebase
+   Console → Authentication → Users → Add user).
+3. **Hard spend cap on the LLM provider (MiniMax).** Set a small monthly quota /
+   usage cap on your MiniMax API key so the worst case is a fixed few dollars,
+   never an unlimited bill — this is what actually protects you against someone
+   asking programming questions all day.
+4. **Firebase budget alert.** In the Google Cloud Console (Billing → Budgets &
+   alerts) set a budget + alert threshold so any usage spike notifies you.
+5. **Restrict the Firebase browser key** to your domain by HTTP referrer (step 4
+   above). Without this, the key can be scraped and used from anywhere.
+6. **Keep LLM/MiniMax keys server-side.** Never put them in a `NEXT_PUBLIC_`
+   variable — they are bundled into the browser. Server-only secrets live in
+   `lib/firestore.ts` / `lib/auth/firebase.server.ts` style modules, read via
+   non-`NEXT_PUBLIC_` env vars.
+
+### Notes / gotchas
 
 - **No `vercel.json`** — adding one can override Next.js defaults and break the
   build. Vercel detects Next.js automatically.
 - **`.env.local` is gitignored** and Vercel ignores it; all vars must be entered
   in the dashboard.
-- **Rate limiting is in-process** (`lib/rate-limit.ts`) — each serverless
-  instance has its own counter. Fine for a personal PoC; swap for a shared store
-  (Redis) before real traffic (see `prd.md` §9 Known Gaps).
+- **Rate limiting** (`lib/rate-limit.ts`) is in-memory by default (each
+  serverless instance has its own counter) and uses a **shared Upstash Redis
+  store** when `UPSTASH_REDIS_REST_URL`/`..._TOKEN` are set. It degrades to
+  in-memory automatically if Redis is down.
 - **Firestore rules must stay deployed** before any real user data flows
   (already done — redeploy if you edit `firestore.rules`).

@@ -80,7 +80,7 @@ export default async function handler(
   // on a verified identity, not an IP. A real user chatting normally
   // never hits this — the burst allowance covers multi-message
   // exchanges and the sustained rate caps scripted abuse.
-  const rate = checkRequestRate(uid);
+  const rate = await checkRequestRate(uid);
   if (!rate.allowed) {
     res.setHeader("Retry-After", String(rate.retryAfterSec));
     return res.status(429).json({ error: "Too many requests. Try again shortly." });
@@ -115,7 +115,7 @@ export default async function handler(
   // past, what protects the local model server is how many simultaneous streams this
   // UID (and the server overall) is holding. If we can't get a slot
   // we return 503 — it's not the user's fault, so no Retry-After.
-  const slot = acquireStreamSlot(uid);
+  const slot = await acquireStreamSlot(uid);
   if (!slot.acquired) {
     return res.status(503).json({ error: "Server is busy. Try again shortly." });
   }
@@ -129,7 +129,7 @@ export default async function handler(
     finalReply = llmStream.finalReply;
     completed = llmStream.completed;
   } catch (err) {
-    releaseStreamSlot(uid);
+    await releaseStreamSlot(uid);
     const message = err instanceof Error ? err.message : "Unknown network error";
     return res.status(502).json({ error: `Could not reach LLM provider: ${message}` });
   }
@@ -201,7 +201,7 @@ export default async function handler(
       logger.error("Failed to resolve finalReply", err);
     }
 
-    releaseStreamSlot(uid);
+    await releaseStreamSlot(uid);
     res.end();
   }
 }
