@@ -6,20 +6,15 @@ import { strings } from "../lib/strings";
 export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { signIn, signUp } = useAuth();
+  const { signIn } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     try {
-      if (isLogin) {
-        await signIn(email, password);
-      } else {
-        await signUp(email, password);
-      }
+      await signIn(email, password);
       router.push("/dashboard");
     } catch (err) {
       const message = err instanceof Error ? err.message : strings.auth.genericError;
@@ -28,12 +23,13 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"
+    <div
+      className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"
       style={{
-        background: "linear-gradient(135deg, #faf9f7 0%, #eef2ff 40%, #f5f3ff 70%, #fdf4ff 100%)",
+        background:
+          "linear-gradient(135deg, #faf9f7 0%, #eef2ff 40%, #f5f3ff 70%, #fdf4ff 100%)",
       }}
     >
-      {/* Decorative background blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
         <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-indigo-200/30 blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-violet-200/20 blur-3xl" />
@@ -41,14 +37,16 @@ export default function Home() {
       </div>
 
       <div className="w-full max-w-md relative z-10">
-        {/* Branding */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-violet-600 mb-5 shadow-lg shadow-indigo-200">
             <span className="text-4xl" role="img" aria-label="heart">
               &#x2764;&#xFE0F;
             </span>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight" style={{ color: "var(--color-text-primary)" }}>
+          <h1
+            className="text-4xl font-bold tracking-tight"
+            style={{ color: "var(--color-text-primary)" }}
+          >
             {strings.common.appName}
           </h1>
           <p className="mt-2 text-base" style={{ color: "var(--color-text-secondary)" }}>
@@ -56,7 +54,6 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Card */}
         <div
           className="rounded-3xl p-8 shadow-xl border"
           style={{
@@ -64,14 +61,18 @@ export default function Home() {
             backdropFilter: "blur(20px)",
             WebkitBackdropFilter: "blur(20px)",
             borderColor: "var(--color-border)",
-            boxShadow: "0 20px 60px -12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5) inset",
+            boxShadow:
+              "0 20px 60px -12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5) inset",
           }}
         >
-          <h2 className="text-2xl font-semibold mb-1" style={{ color: "var(--color-text-primary)" }}>
-            {isLogin ? strings.auth.welcomeBack : strings.auth.createAccount}
+          <h2
+            className="text-2xl font-semibold mb-1"
+            style={{ color: "var(--color-text-primary)" }}
+          >
+            {strings.auth.welcomeBack}
           </h2>
           <p className="text-sm mb-8" style={{ color: "var(--color-text-secondary)" }}>
-            {isLogin ? strings.auth.signInSubtitle : strings.auth.createAccountSubtitle}
+            {strings.auth.signInSubtitle}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -122,7 +123,7 @@ export default function Home() {
                 name="password"
                 type="password"
                 required
-                autoComplete={isLogin ? "current-password webauthn" : "new-password"}
+                autoComplete="current-password webauthn"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={strings.auth.passwordPlaceholder}
@@ -146,7 +147,11 @@ export default function Home() {
             {error && (
               <div
                 className="text-sm rounded-2xl px-4 py-3 border"
-                style={{ color: "var(--color-danger)", background: "var(--color-danger-light)", borderColor: "rgba(220, 38, 38, 0.15)" }}
+                style={{
+                  color: "var(--color-danger)",
+                  background: "var(--color-danger-light)",
+                  borderColor: "rgba(220, 38, 38, 0.15)",
+                }}
               >
                 {error}
               </div>
@@ -159,17 +164,17 @@ export default function Home() {
                 background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)",
               }}
             >
-              {isLogin ? strings.auth.signInButton : strings.auth.createAccountButton}
+              {strings.auth.signInButton}
             </button>
           </form>
 
           <div className="mt-8 text-center">
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => router.push("/signup")}
               className="text-sm font-medium"
               style={{ color: "var(--color-brand)" }}
             >
-              {isLogin ? strings.auth.noAccount : strings.auth.alreadyHaveAccount}
+              {strings.auth.noAccount}
             </button>
           </div>
         </div>
