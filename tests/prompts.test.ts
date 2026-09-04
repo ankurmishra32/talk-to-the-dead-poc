@@ -148,6 +148,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain(
       "This conversation is an AI simulation based on memories"
     );
+    expect(prompt).toContain("after their life, not pretending to be alive");
+  });
+
+  it("includes the grief-presence discipline", () => {
+    const prompt = buildSystemPrompt(basePersona(), []);
+    expect(prompt).toContain("When the user grieves: be present, not consoling");
+    expect(prompt).toContain("Don't resolve grief");
   });
 
   it("does not invent the theyCalledYou line when absent", () => {
