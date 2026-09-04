@@ -20,6 +20,7 @@ import {
 import MemoryInput from "./MemoryInput";
 import { parseSseEvent } from "../lib/sse";
 import {
+  appendUniqueMessage,
   isPersistedId,
   mapMessageDocs,
   reconcileMessages,
@@ -309,9 +310,21 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       createdAt: new Date(),
     })
       .then((docRef) => {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === localKey ? { ...m, id: docRef.id } : m))
-        );
+        setMessages((prev) => {
+          const persistedId = docRef.id;
+          const hasPersisted = prev.some((m) => m.id === persistedId);
+          return prev.reduce<ChatMessage[]>((acc, m) => {
+            if (m.id === localKey) {
+              // If the persisted doc already arrived via the realtime
+              // subscription, drop the local placeholder to avoid a
+              // duplicate id. Otherwise swap it in.
+              if (!hasPersisted) acc.push({ ...m, id: persistedId });
+              return acc;
+            }
+            acc.push(m);
+            return acc;
+          }, []);
+        });
       })
       .catch((err) => {
         logger.error("Failed to persist user message", err);
@@ -345,10 +358,13 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       if (err instanceof DOMException && err.name === "AbortError") {
         if (streamingContent) {
           const assistantId = pendingAssistantIdRef.current ?? undefined;
-          setMessages((prev) => [
-            ...prev,
-            { id: assistantId, role: "assistant", content: streamingContent },
-          ]);
+          setMessages((prev) =>
+            appendUniqueMessage(prev, {
+              id: assistantId,
+              role: "assistant",
+              content: streamingContent,
+            })
+          );
           setStreamingContent("");
         }
         return;
@@ -389,10 +405,13 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       sendingRef.current = false;
       if (accumulated) {
         const assistantId = pendingAssistantIdRef.current ?? undefined;
-        setMessages((prev) => [
-          ...prev,
-          { id: assistantId, role: "assistant", content: accumulated },
-        ]);
+        setMessages((prev) =>
+          appendUniqueMessage(prev, {
+            id: assistantId,
+            role: "assistant",
+            content: accumulated,
+          })
+        );
         setStreamingContent("");
       }
     };
@@ -444,10 +463,13 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     setLoading(false);
     sendingRef.current = false;
     const assistantId = pendingAssistantIdRef.current ?? undefined;
-    setMessages((prev) => [
-      ...prev,
-      { id: assistantId, role: "assistant", content: accumulated },
-    ]);
+    setMessages((prev) =>
+      appendUniqueMessage(prev, {
+        id: assistantId,
+        role: "assistant",
+        content: accumulated,
+      })
+    );
     setStreamingContent("");
     if (!sawDone && !accumulated) {
       setError(strings.chat.emptyReply);

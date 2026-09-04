@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  appendUniqueMessage,
   mapMessageDocs,
   reconcileMessages,
   isPersistedId,
@@ -59,6 +60,49 @@ describe("mapMessageDocs", () => {
     expect(mapMessageDocs(docs)).toEqual([
       { id: "good", role: "user", content: "ok" },
     ]);
+  });
+});
+
+describe("appendUniqueMessage", () => {
+  it("appends a new message", () => {
+    const prev: ChatMessage[] = [{ id: "a", role: "user", content: "hi" }];
+    const next = appendUniqueMessage(prev, {
+      id: "b",
+      role: "assistant",
+      content: "yo",
+    });
+    expect(next).toEqual([
+      { id: "a", role: "user", content: "hi" },
+      { id: "b", role: "assistant", content: "yo" },
+    ]);
+  });
+
+  it("does not duplicate an id that is already present (done vs onSnapshot race)", () => {
+    const prev: ChatMessage[] = [
+      { id: "a", role: "user", content: "hi" },
+      { id: "b", role: "assistant", content: "yo" },
+    ];
+    const next = appendUniqueMessage(prev, {
+      id: "b",
+      role: "assistant",
+      content: "yo",
+    });
+    expect(next).toBe(prev);
+  });
+
+  it("gives a unique temp id when no id is supplied", () => {
+    const prev: ChatMessage[] = [
+      { id: "a", role: "user", content: "hi" },
+      { id: "a2", role: "user", content: "hi" },
+    ];
+    const next = appendUniqueMessage(prev, {
+      id: undefined,
+      role: "assistant",
+      content: "partial",
+    });
+    expect(next).toHaveLength(3);
+    expect(next[2].id).toBeDefined();
+    expect(next[2].id!.startsWith("local-")).toBe(true);
   });
 });
 

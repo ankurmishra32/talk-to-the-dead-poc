@@ -12,6 +12,32 @@ export function isPersistedId(id: string | undefined): id is string {
 }
 
 /**
+ * Appends an incoming message to the list without introducing duplicate ids.
+ *
+ * The assistant reply can arrive twice: once from the SSE "done" handler (via
+ * `pendingAssistantIdRef`) and once from the realtime onSnapshot "added" event
+ * that carries the persisted doc with the same id. Upserting by id collapses
+ * the duplicate.
+ *
+ * When `incoming.id` is falsy (e.g. the stream aborted before an "id" event),
+ * a unique temp id is generated so unrelated appends never collide as React
+ * keys.
+ */
+export function appendUniqueMessage(
+  prev: ChatMessage[],
+  incoming: ChatMessage
+): ChatMessage[] {
+  if (incoming.id) {
+    const exists = prev.some((m) => m.id === incoming.id);
+    if (exists) return prev;
+    return [...prev, incoming];
+  }
+  const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const marker = prev.some((m) => m.id === tempId);
+  return [...prev, { ...incoming, id: marker ? `${tempId}-2` : tempId }];
+}
+
+/**
  * Maps Firestore message docs into our local ChatMessage shape and
  * reverses the desc-ordered input so the list renders chronologically.
  * Drops malformed docs silently — they should not exist if the chat
