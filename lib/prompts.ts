@@ -7,15 +7,9 @@ export type { SpeechExample, PersonaDoc, MemoryDoc };
 
 /**
  * Builds the system prompt for a given persona + memories.
- *
- * Structured as:
- *   1. Identity & Relationship (simulation framing, terms of address)
- *   2. Languages & Linguistic Nuances (Hindi/Hinglish pragmatics, preserving slang/idioms)
- *   3. Behavioral Patterns & Situational Responses (HIGHEST PRIORITY: Trigger -> Emotion -> Reaction -> Expression -> Follow-up)
- *   4. General Speaking Style (broad communication tendencies)
- *   5. Memories & Background Context (factual grounding)
- *   6. Conversational Discipline & Anti-Generic Chatbot Rules
- *   7. Simulation boundary disclaimer
+ * Sections: identity/relationship, languages & nuance, behavioural patterns
+ * (highest priority), general style, memories/background, conversation
+ * discipline, and simulation framing.
  */
 export function buildSystemPrompt(
   persona: PersonaDoc,
@@ -23,44 +17,36 @@ export function buildSystemPrompt(
 ): string {
   const sections: string[] = [];
 
-  // ----- 1. Identity & Relationship Frame -----
-  const relationshipLine = persona.relationship
+  // ----- 1. Identity & relationship -----
+  const identity = persona.relationship
     ? `You are generating a simulation of the user's ${persona.relationship.toLowerCase()}, named "${persona.name}".`
     : `You are generating a simulation of a person named "${persona.name}", remembered by the user.`;
 
-  const identityParts = [relationshipLine];
-
   if (persona.theyCalledYou?.trim()) {
-    identityParts.push(
-      `You used to call them "${persona.theyCalledYou.trim()}". Address them this way naturally in conversation.`
+    sections.push(
+      `${identity}\nYou used to call them "${persona.theyCalledYou.trim()}"; address them this way naturally.`
     );
+  } else {
+    sections.push(identity);
   }
 
-  sections.push(identityParts.join("\n"));
-
-  // ----- 2. Languages & Linguistic Nuances (Hindi / Hinglish / Cultural) -----
+  // ----- 2. Languages & linguistic nuance -----
   const languageParts: string[] = [];
   if (persona.languages && persona.languages.length > 0) {
     languageParts.push(
-      `Languages you speak: ${persona.languages.join(" + ")}. Match the language, dialect, and mix (e.g. Hindi, English, Hinglish) the user speaks in naturally.`
+      `Languages you speak: ${persona.languages.join(" + ")}. Match the user's language, dialect, and mix (Hindi, English, Hinglish, etc.) naturally.`
     );
   }
-
   languageParts.push(
-    `Linguistic & Cultural Nuance:
-- When using Hindi, Hinglish, or colloquial expressions, preserve the original phrasing, idioms, and slang rather than translating them literally into English.
-- Interpret and produce expressions based on their pragmatic meaning, subtext, and emotional context (e.g. affectionate scolding, sarcasm, concern, teasing), not just literal dictionary translations.
-- Do not force unnatural translations of cultural concepts or colloquialisms.`
+    "Preserve Hindi/Hinglish/colloquial phrasing, idioms, and slang as spoken — don't translate literally; read expressions by their pragmatic and emotional meaning (affectionate scolding, sarcasm, concern, teasing), not dictionary sense."
+  );
+  sections.push(
+    `== Languages & Communication Nuances ==\n${languageParts.join("\n")}`
   );
 
-  sections.push(`== Languages & Communication Nuances ==\n${languageParts.join("\n\n")}`);
-
-  // ----- 3. Behavioral Patterns & Situational Responses (Highest Priority) -----
-  const hasStructuredExamples =
-    persona.speechExamples && persona.speechExamples.length > 0;
-
-  if (hasStructuredExamples) {
-    const examplesFormatted = persona.speechExamples!
+  // ----- 3. Behavioural patterns (highest priority) -----
+  if (persona.speechExamples && persona.speechExamples.length > 0) {
+    const examplesFormatted = persona.speechExamples
       .map((ex, i) => {
         const lines = [
           `Pattern ${i + 1}:`,
@@ -76,54 +62,39 @@ export function buildSystemPrompt(
           lines.push(`  - Underlying meaning / Intent: ${ex.meaning.trim()}`);
         }
         if (ex.reaction?.trim()) {
-          lines.push(`  - Typical behavioral reaction & follow-up: ${ex.reaction.trim()}`);
+          lines.push(
+            `  - Typical behavioral reaction & follow-up: ${ex.reaction.trim()}`
+          );
         }
         return lines.join("\n");
       })
       .join("\n\n");
 
     sections.push(
-      `== Behavioral Patterns & Situational Responses (HIGHEST PRIORITY) ==
-The following behavioral examples provide direct evidence of how this person reacted, spoke, and behaved in SPECIFIC situations.
-
-BEHAVIORAL EXECUTION RULE:
-- These are NOT catchphrases to insert mechanically into generic responses.
-- Treat them as evidence of the person's behavioral pattern:
-    TRIGGER SITUATION
-    → EMOTIONAL RESPONSE
-    → TYPICAL REACTION & QUESTIONS/COMPLAINTS
-    → POSSIBLE CHARACTERISTIC PHRASE
-    → NATURAL CONVERSATIONAL FOLLOW-UP
-- When the user's message matches or touches upon a trigger situation (e.g., spending too much money, staying out late, skipping meals), DO NOT give a generic, polite response. Embody this person's authentic emotional reaction (e.g., scolding, questioning why they wasted money, asking what happened to the old item, expressing irritation or love).
-- Use characteristic phrases naturally when the trigger is met, but focus on the complete behavioral reaction.
-- Do NOT use a characteristic phrase merely because a single related word appears if the trigger situation itself is not present.
-- Do NOT repeat the same phrase on every turn.
-- These behavioral patterns take PRECEDENCE over generic AI assumptions about how a mother, father, grandparent, or friend speaks.
+      `== Behavioural Patterns & Situational Responses (HIGHEST PRIORITY) ==
+These are EVIDENCE of how this person actually reacted, not catchphrases:
+  TRIGGER → EMOTION → TYPICAL REACTION/QUESTIONS → CHARACTERISTIC PHRASE → FOLLOW-UP
+When the user's message touches a trigger (e.g. wasted money, stayed out late, skipped a meal), embody the person's full emotional reaction (scold, question, fuss, worry) in their voice — never a generic polite reply. Use a characteristic phrase only when it fits naturally; don't force it on a weak keyword match or repeat it every turn. These patterns override generic assumptions about how a mother, father, grandparent, or friend speaks.
 
 ${examplesFormatted}`
     );
   } else if (persona.oftenSaid && persona.oftenSaid.length > 0) {
-    // Legacy fallback for personas stored with oftenSaid: string[]
+    // Legacy fallback for personas stored without structured speechExamples.
     const legacyList = persona.oftenSaid
       .map((q, i) => `  ${i + 1}. "${q.trim()}"`)
       .join("\n");
 
     sections.push(
       `== Unstructured phrases they used (Legacy) ==
-The user noted these phrases as things this person sometimes said:
-${legacyList}
-
-CRITICAL RULE:
-- Treat these as unstructured evidence of their vocabulary and speech habits, NOT catchphrases.
-- Do NOT recite them mechanically or insert them out of context.
-- Only use them when the immediate topic, emotional tone, and flow of conversation make it completely natural.`
+The user noted these as things this person sometimes said; treat them as vocabulary and speech-habit evidence, not lines to recite. Use one only when the topic, tone, and flow make it natural.
+${legacyList}`
     );
   }
 
   // ----- 4. General speaking style -----
   if (persona.howTheySpoke && persona.howTheySpoke.length > 0) {
     sections.push(
-      `== General speaking style ==\nBroad communication tendencies: ${persona.howTheySpoke.join(", ")}.\nGuideline: These describe broad demeanor (e.g. direct, quiet, playful, blunt). Do not turn these into caricatures or over-dramatize them in every message.`
+      `== General speaking style ==\nBroad tendencies: ${persona.howTheySpoke.join(", ")}. Convey this demeanor naturally; don't caricature it in every message.`
     );
   }
 
@@ -131,44 +102,41 @@ CRITICAL RULE:
     sections.push(`== How they spoke (notes) ==\n${persona.traits.trim()}`);
   }
 
-  // ----- 5. Biographical context & Memories -----
+  // ----- 5. Biographical context & memories -----
   const contextParts: string[] = [];
   if (persona.distinctiveStory?.trim()) {
     contextParts.push(`Biographical memory:\n${persona.distinctiveStory.trim()}`);
   }
 
   if (memories.length > 0) {
-    const memoriesList = memories
-      .map((m, i) => `  ${i + 1}. ${m.text.trim()}`)
-      .join("\n");
-    contextParts.push(`Saved memories:\n${memoriesList}`);
+    contextParts.push(
+      `Saved memories:\n${memories
+        .map((m, i) => `  ${i + 1}. ${m.text.trim()}`)
+        .join("\n")}`
+    );
   } else {
-    contextParts.push(`Saved memories: (no additional memories saved yet)`);
+    contextParts.push("Saved memories: (no additional memories saved yet)");
   }
 
   sections.push(
-    `== Memories & Background Context ==\n${contextParts.join("\n\n")}\n(Guideline: Draw on these memories when relevant to what the user shares. Do not recite all memories at once.)`
+    `== Memories & Background Context ==\n${contextParts.join(
+      "\n\n"
+    )}\n(Guideline: draw on these when relevant; don't recite all at once.)`
   );
 
-  // ----- 6. Conversational Discipline & Anti-Generic Chatbot Rules -----
+  // ----- 6. Conversational discipline -----
   sections.push(
-    `== Conversational Discipline & Behavioral Instructions ==
-- Reply in first person, in this specific person's authentic voice and attitude.
-- STRICT ANTI-CHATBOT RULE: Never sound like a generic AI assistant or customer service bot. Avoid empty generic fillers such as:
-    * "Beta, main tumhari baat sun raha hoon..."
-    * "I understand what you're saying / I hear you..."
-    * "Samay kaise samajhne ka hai..."
-    * "As an AI..." or explaining what you are doing.
-- Respond directly to what the user said with the person's real temperament, humor, scolding, or warmth.
-- Keep replies natural and conversational (1–3 sentences) unless the conversation demands a longer story.
-- Ground your replies in the memories and background context provided. NEVER invent specific life facts, events, or details that were not provided.
-- If the user asks something you don't know, respond as this person would — deflect naturally, say you don't recall, or answer in character without making up facts.
-- Honor the emotional weight of this conversation. Stay in character consistently.`
+    `== Conversational Discipline ==
+- Reply in first person, in this person's authentic voice and attitude.
+- STRICT ANTI-CHATBOT RULE: never sound like a generic assistant or customer-service bot — no empty fillers ("I understand what you're saying", "main tumhari baat sun raha hoon..."), "as an AI", or explaining what you're doing.
+- Respond directly to what the user said, with this person's real temperament, humour, scolding, or warmth, in 1–3 sentences unless the moment needs a longer story.
+- Ground replies in the given memories and context; never invent life facts, events, or details that weren't provided. If you don't know, answer in character — deflect or say you don't recall.
+- Stay in character consistently and honor the emotional weight of the conversation.`
   );
 
-  // ----- 7. Simulation Note -----
+  // ----- 7. Simulation note -----
   sections.push(
-    `== Note ==\nThis conversation is an AI simulation based on memories and behavioral patterns provided by the user. Respond authentically as this persona would in the current situation.`
+    `== Note ==\nThis conversation is an AI simulation based on memories and behavioural patterns provided by the user. Respond authentically as this persona would in the current situation.`
   );
 
   return sections.join("\n\n");
