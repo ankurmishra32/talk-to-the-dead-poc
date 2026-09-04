@@ -1,13 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "../firebase/config";
-import { auth } from "../firebase/config";
-import { collection, addDoc, getDocs, query, orderBy, limit } from "firebase/firestore";
-import { signOut, onAuthStateChanged } from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+} from "firebase/firestore";
+import { useAuth } from "../lib/auth/useAuth";
+import { mapPersonaDoc, reconcilePersonas } from "../lib/personas";
+import type { PersonaItem, PersonaReference } from "../lib/types";
+import { createLogger } from "../lib/logger";
 
-type Persona = {
-  id: string;
-  name: string;
-};
+const logger = createLogger("PersonaSelection");
 
 const RELATIONSHIPS = [
   "Mother",
@@ -32,11 +42,23 @@ const SPEECH_STYLES = [
   "Blunt",
 ] as const;
 
-export default function PersonaSelection({ onSelect }: { onSelect: (personaData: Persona) => void }) {
-  // Existing personas list (scoped to current user via client-side filter).
-  const [existing, setExisting] = useState<Persona[]>([]);
+type SpeechExampleInput = {
+  phrase: string;
+  context: string;
+  meaning: string;
+  tone: string;
+  reaction: string;
+};
+
+export default function PersonaSelection({ onSelect }: { onSelect: (personaData: PersonaReference) => void }) {
+  // Existing personas list, constrained by userId so it satisfies Firestore
+  // rules as well as avoiding a needless full-collection read.
+  const [existing, setExisting] = useState<PersonaItem[]>([]);
   const [listLoading, setListLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
+  const { user, signOut } = useAuth();
+  const userId = user?.uid ?? null;
 
   // Form state.
   const [name, setName] = useState("");
@@ -44,91 +66,211 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   const [theyCalledYou, setTheyCalledYou] = useState("");
   const [languages, setLanguages] = useState<string[]>([]);
   const [howTheySpoke, setHowTheySpoke] = useState<string[]>([]);
-  const [oftenSaid, setOftenSaid] = useState<string[]>(["", ""]);
+  const [speechExamples, setSpeechExamples] = useState<SpeechExampleInput[]>([
+    { phrase: "", context: "", meaning: "", tone: "", reaction: "" },
+  ]);
   const [distinctiveStory, setDistinctiveStory] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Track current user so we can scope the persona list per-user.
-  // (Firestore rules are the proper enforcement — this is just a UX filter.)
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUserId(u?.uid ?? null));
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
+    if (userId === null) return;
     let cancelled = false;
-    async function load() {
-      try {
-        const q = query(collection(db, "personas"), orderBy("createdAt", "desc"), limit(50));
-        const snap = await getDocs(q);
+    setListLoading(true);
+    // Live subscription to this user's personas. A persona created or
+    // edited on another device shows up here without a manual refresh.
+    // The returned unsubscribe is called on cleanup.
+    const personasQuery = query(
+      collection(db, "personas"),
+      where("userId", "==", userId),
+      orderBy("createdAt", "desc"),
+      limit(50)
+    );
+    let isFirstSnap = true;
+    const unsubscribe = onSnapshot(
+      personasQuery,
+      (snap) => {
         if (cancelled) return;
-        // Load with ownerId, filter to current user, then strip ownerId
-        // before storing in state — we only need id/name for the UI list.
-        type WithOwner = { id: string; name: string; ownerId: string | null };
-        const items: Persona[] = snap.docs
-          .map((d): WithOwner => {
-            const data = d.data() as { name?: string; userId?: string };
-            return {
-              id: d.id,
-              name: data.name ?? "(unnamed)",
-              ownerId: data.userId ?? null,
-            };
-          })
-          // Filter client-side to the current user. We do this rather than
-          // a `where("userId","==",uid)` query because the composite index
-          // it would require (userId, createdAt) isn't worth creating for a
-          // PoC. The /api/chat route enforces ownership at the server; this
-          // is just a UX filter.
-          .filter((p) => userId !== null && p.ownerId === userId)
-          .map(({ id, name }) => ({ id, name }));
-        setExisting(items);
-      } catch (err) {
-        console.error("Error loading personas:", err);
-      } finally {
-        if (!cancelled) setListLoading(false);
+        if (isFirstSnap) {
+          isFirstSnap = false;
+          const items = snap.docs
+            .map((d) => mapPersonaDoc(d, userId))
+            .filter((p): p is PersonaItem => p !== null);
+          setExisting(items);
+          setListLoading(false);
+          return;
+        }
+        setExisting((prev) => reconcilePersonas(prev, snap.docChanges(), userId));
+      },
+      (err) => {
+        if (cancelled) return;
+        logger.error("Persona subscription failed", err);
+        setListLoading(false);
       }
-    }
-    if (userId !== null) load();
+    );
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [userId]);
 
   const toggleFromArray = (arr: string[], v: string): string[] =>
     arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userId) {
-      setError("You must be signed in to create a persona.");
+  const resetForm = () => {
+    setEditingId(null);
+    setName("");
+    setRelationship("");
+    setTheyCalledYou("");
+    setLanguages([]);
+    setHowTheySpoke([]);
+    setSpeechExamples([{ phrase: "", context: "", meaning: "", tone: "", reaction: "" }]);
+    setDistinctiveStory("");
+    setError(null);
+  };
+
+  const startEdit = (p: PersonaItem) => {
+    setEditingId(p.id);
+    setName(p.name || "");
+    setRelationship(p.relationship || "");
+    setTheyCalledYou(p.theyCalledYou || "");
+    setLanguages(p.languages || []);
+    setHowTheySpoke(p.howTheySpoke || []);
+
+    if (p.speechExamples && p.speechExamples.length > 0) {
+      setSpeechExamples(
+        p.speechExamples.map((ex) => ({
+          phrase: ex.phrase || "",
+          context: ex.context || "",
+          meaning: ex.meaning || "",
+          tone: ex.tone || "",
+          reaction: ex.reaction || "",
+        }))
+      );
+    } else if (p.oftenSaid && p.oftenSaid.length > 0) {
+      setSpeechExamples(
+        p.oftenSaid.map((phrase) => ({
+          phrase: phrase || "",
+          context: "",
+          meaning: "",
+          tone: "",
+          reaction: "",
+        }))
+      );
+    } else {
+      setSpeechExamples([{ phrase: "", context: "", meaning: "", tone: "", reaction: "" }]);
+    }
+
+    setDistinctiveStory(p.distinctiveStory || "");
+    setError(null);
+    formRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleDelete = async (p: PersonaItem) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete "${p.name}"? This cannot be undone.`
+      )
+    ) {
       return;
     }
-    setLoading(true);
+    try {
+      await deleteDoc(doc(db, "personas", p.id));
+      setExisting((prev) => prev.filter((item) => item.id !== p.id));
+      if (editingId === p.id) {
+        resetForm();
+      }
+    } catch (err) {
+      logger.error("Error deleting persona", err);
+      setError(err instanceof Error ? err.message : "Failed to delete persona.");
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) {
+      setError("You must be signed in to save a persona.");
+      return;
+    }
     setError(null);
 
-    // Clean up the "things they often said" array — drop empties, trim whitespace.
-    const cleanOftenSaid = oftenSaid.map((s) => s.trim()).filter(Boolean);
+    // Validate speech examples: if a phrase is entered, context is required
+    for (const item of speechExamples) {
+      const p = item.phrase.trim();
+      const c = item.context.trim();
+      if (p && !c) {
+        setError(`Please specify when they would say "${p}" (the situation or trigger).`);
+        return;
+      }
+    }
+
+    setLoading(true);
+
+    // Clean up situational speech examples
+    type CleanExample = {
+      phrase: string;
+      context: string;
+      meaning?: string;
+      tone?: string;
+      reaction?: string;
+    };
+    const cleanSpeechExamples: CleanExample[] = speechExamples
+      .map((item): CleanExample => {
+        const entry: CleanExample = {
+          phrase: item.phrase.trim(),
+          context: item.context.trim(),
+        };
+        if (item.meaning.trim()) entry.meaning = item.meaning.trim();
+        if (item.tone.trim()) entry.tone = item.tone.trim();
+        if (item.reaction.trim()) entry.reaction = item.reaction.trim();
+        return entry;
+      })
+      .filter((item) => item.phrase.length > 0 && item.context.length > 0);
+
+    // Legacy string array for backward compatibility
+    const legacyOftenSaid = cleanSpeechExamples.map((item) => item.phrase);
+
+    const personaPayload = {
+      name: name.trim(),
+      relationship: relationship || null,
+      theyCalledYou: theyCalledYou.trim() || null,
+      languages,
+      howTheySpoke,
+      speechExamples: cleanSpeechExamples,
+      oftenSaid: legacyOftenSaid,
+      distinctiveStory: distinctiveStory.trim() || null,
+      traits: "",
+      userId,
+    };
 
     try {
-      const docRef = await addDoc(collection(db, "personas"), {
-        name: name.trim(),
-        relationship: relationship || null,
-        theyCalledYou: theyCalledYou.trim() || null,
-        languages,
-        howTheySpoke,
-        oftenSaid: cleanOftenSaid,
-        distinctiveStory: distinctiveStory.trim() || null,
-        // Legacy field — empty for new personas. Kept so the prompt builder
-        // and the older API contract don't break.
-        traits: "",
-        userId,
-        createdAt: new Date(),
-      });
-      onSelect({ id: docRef.id, name: name.trim() });
+      if (editingId) {
+        await updateDoc(doc(db, "personas", editingId), {
+          ...personaPayload,
+          updatedAt: new Date(),
+        });
+        setExisting((prev) =>
+          prev.map((item) =>
+            item.id === editingId
+              ? {
+                  ...item,
+                  ...personaPayload,
+                  ownerId: userId,
+                }
+              : item
+          )
+        );
+        resetForm();
+      } else {
+        const docRef = await addDoc(collection(db, "personas"), {
+          ...personaPayload,
+          createdAt: new Date(),
+        });
+        onSelect({ id: docRef.id, name: name.trim() });
+      }
     } catch (err) {
-      console.error("Error creating persona:", err);
-      setError(err instanceof Error ? err.message : "Failed to create persona.");
+      logger.error("Error saving persona", err);
+      setError(err instanceof Error ? err.message : "Failed to save persona.");
     } finally {
       setLoading(false);
     }
@@ -136,9 +278,9 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth);
+      await signOut();
     } catch (err) {
-      console.error("Sign out failed:", err);
+      logger.error("Sign out failed", err);
     }
   };
 
@@ -164,25 +306,62 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
           <ul className="divide-y border rounded">
             {existing.map((p) => (
               <li key={p.id} className="flex items-center justify-between p-3">
-                <div className="font-medium truncate">{p.name}</div>
-                <button
-                  onClick={() => onSelect(p)}
-                  className="ml-3 flex-shrink-0 bg-blue-600 text-white text-sm px-3 py-1 rounded hover:bg-blue-700"
-                >
-                  Talk →
-                </button>
+                <div>
+                  <div className="font-medium text-gray-900">{p.name}</div>
+                  {p.relationship && (
+                    <div className="text-xs text-gray-500">{p.relationship}</div>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(p)}
+                    className="text-sm border border-gray-300 text-gray-700 px-2.5 py-1 rounded hover:bg-gray-50"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(p)}
+                    className="text-sm border border-red-200 text-red-600 px-2.5 py-1 rounded hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(p)}
+                    className="bg-blue-600 text-white text-sm px-3 py-1 rounded hover:bg-blue-700 font-medium"
+                  >
+                    Talk →
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section>
-        <h3 className="text-sm font-semibold text-gray-600 mb-2">Or remember someone new</h3>
+      <section ref={formRef} className="pt-2 border-t">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {editingId ? `Edit ${name ? `"${name}"` : "Persona"}` : "Remember someone new"}
+          </h3>
+          {editingId && (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="text-xs text-gray-500 hover:text-gray-700 underline"
+            >
+              Cancel edit & create new
+            </button>
+          )}
+        </div>
         <p className="mb-4 text-gray-600 text-sm">
-          Tell us about the person you want to talk to. The more you share, the closer their voice will feel.
+          {editingId
+            ? "Update what you called them, their typical expressions, mannerisms, or memories."
+            : "Tell us about the person you want to talk to. The more you share, the closer their voice will feel."}
         </p>
-        <form onSubmit={handleCreate} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-sm font-medium mb-1">What did you call them?</label>
             <input
@@ -268,29 +447,164 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">What did they often say?</label>
-            <div className="space-y-2">
-              {oftenSaid.map((q, i) => (
-                <input
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium">
+                Distinctive phrases & situational speech
+              </label>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Share phrases they used and the specific situations when they said them, so the AI responds authentically instead of repeating catchphrases out of place.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {speechExamples.map((ex, i) => (
+                <div
                   key={i}
-                  type="text"
-                  value={q}
-                  onChange={(e) => {
-                    const next = [...oftenSaid];
-                    next[i] = e.target.value;
-                    setOftenSaid(next);
-                  }}
-                  placeholder={`e.g. ${i === 0 ? '"Khana kha liya?"' : '"Paise ped pe nahi ugte."'}`}
-                  className="w-full border p-2 rounded"
-                />
+                  className="p-3.5 border rounded bg-gray-50/75 space-y-3 relative"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                      Speech Example {i + 1}
+                    </span>
+                    {speechExamples.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSpeechExamples(
+                            speechExamples.filter((_, idx) => idx !== i)
+                          )
+                        }
+                        className="text-xs text-red-600 hover:text-red-800"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      What is something they used to say?
+                    </label>
+                    <input
+                      type="text"
+                      value={ex.phrase}
+                      onChange={(e) => {
+                        const next = [...speechExamples];
+                        next[i] = { ...next[i], phrase: e.target.value };
+                        setSpeechExamples(next);
+                      }}
+                      placeholder={
+                        i === 0
+                          ? 'e.g. "Bill tera baap bharega?"'
+                          : 'e.g. "Khana kha liya?"'
+                      }
+                      className="w-full border p-2 rounded text-sm bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      When would they say it? (Situation / Trigger)
+                    </label>
+                    <input
+                      type="text"
+                      value={ex.context}
+                      onChange={(e) => {
+                        const next = [...speechExamples];
+                        next[i] = { ...next[i], context: e.target.value };
+                        setSpeechExamples(next);
+                      }}
+                      placeholder={
+                        i === 0
+                          ? 'e.g. "When I asked for an expensive purchase or was wasting money"'
+                          : 'e.g. "Whenever I walked through the door after school or work"'
+                      }
+                      className="w-full border p-2 rounded text-sm bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        What did they mean?{" "}
+                        <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={ex.meaning}
+                        onChange={(e) => {
+                          const next = [...speechExamples];
+                          next[i] = { ...next[i], meaning: e.target.value };
+                          setSpeechExamples(next);
+                        }}
+                        placeholder={
+                          i === 0
+                            ? "e.g. Sarcastic: who will pay for this?"
+                            : "e.g. Caring: checking if I was taken care of"
+                        }
+                        className="w-full border p-2 rounded text-sm bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        How did they sound / Tone?{" "}
+                        <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={ex.tone}
+                        onChange={(e) => {
+                          const next = [...speechExamples];
+                          next[i] = { ...next[i], tone: e.target.value };
+                          setSpeechExamples(next);
+                        }}
+                        placeholder={
+                          i === 0
+                            ? "e.g. Irritated, sarcastic"
+                            : "e.g. Warm, affectionate, concerned"
+                        }
+                        className="w-full border p-2 rounded text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      What would they typically do/say next? / Typical reaction{" "}
+                      <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={ex.reaction}
+                      onChange={(e) => {
+                        const next = [...speechExamples];
+                        next[i] = { ...next[i], reaction: e.target.value };
+                        setSpeechExamples(next);
+                      }}
+                      placeholder={
+                        i === 0
+                          ? 'e.g. "Questions why I spent so much money and complains about unnecessary expenses"'
+                          : 'e.g. "Insists that I sit down and eat before doing anything else"'
+                      }
+                      className="w-full border p-2 rounded text-sm bg-white"
+                    />
+                  </div>
+                </div>
               ))}
+
               <button
                 type="button"
-                onClick={() => setOftenSaid([...oftenSaid, ""])}
-                className="text-sm text-blue-600 hover:underline"
+                onClick={() =>
+                  setSpeechExamples([
+                    ...speechExamples,
+                    { phrase: "", context: "", meaning: "", tone: "", reaction: "" },
+                  ])
+                }
+                className="text-sm text-blue-600 hover:underline font-medium inline-flex items-center space-x-1"
               >
-                + Add another
+                <span>+ Add another speech example</span>
               </button>
             </div>
           </div>
@@ -311,13 +625,25 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:bg-gray-400"
-          >
-            {loading ? "Saving…" : "Remember them"}
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:bg-gray-400 font-medium"
+            >
+              {loading ? "Saving…" : editingId ? "Save changes" : "Remember them"}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={loading}
+                className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 text-sm"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </section>
     </div>

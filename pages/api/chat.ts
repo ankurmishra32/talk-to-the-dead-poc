@@ -1,12 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { buildSystemPrompt } from "../../lib/prompts";
-import {
-  getPersona,
-  listMemoriesForPersona,
-  getUidFromAuthHeader,
-  UnauthenticatedError,
-} from "../../lib/firestore";
+import { getPersona, listMemoriesForPersona, appendConversationMessage } from "../../lib/firestore";
 import type { PersonaDoc, MemoryDoc } from "../../lib/firestore";
+import { authAdapter } from "../../lib/auth/server";
+import { llmAdapter } from "../../lib/llm";
+import {
+  checkRequestRate,
+  acquireStreamSlot,
+  releaseStreamSlot,
+} from "../../lib/rate-limit";
+import { createLogger } from "../../lib/logger";
+
+const logger = createLogger("api/chat");
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -22,6 +27,10 @@ type Response =
   | { reply: string }
   | { error: string };
 
+const MAX_MESSAGES = 40;
+const MAX_MESSAGE_CHARS = 4_000;
+const MAX_TOTAL_MESSAGE_CHARS = 24_000;
+
 function isValidMessage(m: unknown): m is ChatMessage {
   if (!m || typeof m !== "object") return false;
   const msg = m as { role?: unknown; content?: unknown };
@@ -30,14 +39,6 @@ function isValidMessage(m: unknown): m is ChatMessage {
     typeof msg.content === "string" &&
     msg.content.trim().length > 0
   );
-}
-
-function getOllamaHost(): string {
-  return process.env.OLLAMA_HOST || "http://localhost:11434";
-}
-
-function getOllamaModel(): string {
-  return process.env.OLLAMA_MODEL || "llama3.2";
 }
 
 export default async function handler(
@@ -53,33 +54,52 @@ export default async function handler(
   if (!body || typeof body.personaId !== "string" || !Array.isArray(body.messages)) {
     return res.status(400).json({ error: "Body must be { personaId, messages[] }." });
   }
+  if (body.messages.length === 0 || body.messages.length > MAX_MESSAGES) {
+    return res.status(400).json({ error: `messages[] must contain 1–${MAX_MESSAGES} entries.` });
+  }
   if (!body.messages.every(isValidMessage)) {
     return res.status(400).json({ error: "Each message must be { role: 'user'|'assistant', content: string }." });
   }
-  // Cap conversation length so a single request can't blow the token budget.
-  const messages = body.messages.slice(-40);
+  const messages = body.messages;
+  const totalMessageChars = messages.reduce((total, message) => total + message.content.length, 0);
+  if (
+    messages.some((message) => message.content.length > MAX_MESSAGE_CHARS) ||
+    totalMessageChars > MAX_TOTAL_MESSAGE_CHARS
+  ) {
+    return res.status(400).json({
+      error: `Messages must be at most ${MAX_MESSAGE_CHARS} characters each and ${MAX_TOTAL_MESSAGE_CHARS} characters in total.`,
+    });
+  }
 
+  const authorization = req.headers.authorization ?? "";
   let uid: string;
   try {
-    uid = await getUidFromAuthHeader(req.headers.authorization);
-  } catch (err) {
-    if (err instanceof UnauthenticatedError) {
-      return res.status(401).json({ error: "Unauthenticated." });
-    }
-    const message = err instanceof Error ? err.message : "Unknown auth error";
-    return res.status(502).json({ error: `Auth lookup failed: ${message}` });
+    const user = await authAdapter.verifyAccessToken(authorization);
+    uid = user.uid;
+  } catch {
+    return res.status(401).json({ error: "Unauthenticated." });
+  }
+
+  // Rate limit (per UID). Happens after auth so the bucket is keyed
+  // on a verified identity, not an IP. A real user chatting normally
+  // never hits this — the burst allowance covers multi-message
+  // exchanges and the sustained rate caps scripted abuse.
+  const rate = checkRequestRate(uid);
+  if (!rate.allowed) {
+    res.setHeader("Retry-After", String(rate.retryAfterSec));
+    return res.status(429).json({ error: "Too many requests. Try again shortly." });
   }
 
   let persona: PersonaDoc;
   let memories: MemoryDoc[];
   try {
     // getPersona enforces ownership — returns null if persona.ownerId !== uid.
-    const found = await getPersona(body.personaId, uid);
+    const found = await getPersona(body.personaId, uid, authorization);
     if (!found) {
       return res.status(404).json({ error: "Persona not found." });
     }
     persona = found;
-    memories = await listMemoriesForPersona(body.personaId, 20);
+    memories = await listMemoriesForPersona(body.personaId, uid, authorization, 20);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown Firestore error";
     return res.status(502).json({ error: `Firestore: ${message}` });
@@ -87,100 +107,105 @@ export default async function handler(
 
   const system = buildSystemPrompt(persona, memories);
 
-  // Ollama chat completion, streaming. We set stream:true so Ollama returns
-  // NDJSON — one JSON object per line, each carrying a delta in
-  // message.content. We pipe the body straight through to the client as
-  // Server-Sent Events so the browser can render tokens as they arrive.
-  let ollamaRes: globalThis.Response;
+  // The LLM adapter returns a ReadableStream whose chunks are already
+  // SSE-formatted bytes (event: delta / done / error). We stream them
+  // to the response one chunk at a time so a transport error mid-stream
+  // can emit an `event: error` event before closing, matching the
+  // pre-refactor behavior.
+  const ac = new AbortController();
+  req.on("close", () => ac.abort());
+
+  // Concurrency cap on in-flight streams. Once the rate check is
+  // past, what protects the local model server is how many simultaneous streams this
+  // UID (and the server overall) is holding. If we can't get a slot
+  // we return 503 — it's not the user's fault, so no Retry-After.
+  const slot = acquireStreamSlot(uid);
+  if (!slot.acquired) {
+    return res.status(503).json({ error: "Server is busy. Try again shortly." });
+  }
+
+  let upstream: ReadableStream<Uint8Array>;
+  let finalReply: Promise<string>;
+  let completed: Promise<boolean>;
   try {
-    ollamaRes = await fetch(`${getOllamaHost()}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: getOllamaModel(),
-        stream: true,
-        messages: [{ role: "system", content: system }, ...messages],
-      }),
-    });
+    const llmStream = await llmAdapter.streamChat({ system, messages }, ac.signal);
+    upstream = llmStream.stream;
+    finalReply = llmStream.finalReply;
+    completed = llmStream.completed;
   } catch (err) {
+    releaseStreamSlot(uid);
     const message = err instanceof Error ? err.message : "Unknown network error";
-    return res
-      .status(502)
-      .json({ error: `Could not reach Ollama at ${getOllamaHost()}: ${message}` });
+    return res.status(502).json({ error: `Could not reach LLM provider: ${message}` });
   }
 
-  if (!ollamaRes.ok || !ollamaRes.body) {
-    let detail = "";
-    try {
-      detail = await ollamaRes.text();
-    } catch {
-      // ignore
-    }
-    return res.status(502).json({
-      error: `Ollama responded ${ollamaRes.status}: ${detail || "(no body)"}`,
-    });
-  }
-
-  // Re-emit each NDJSON line as an SSE "data:" event. The shape is:
-  //   {"message":{"content":"<delta>"},"done":false}   -> forward as data
-  //   {"done":true,"...stats..."}                       -> forward as "done"
-  // On any parse failure or transport error mid-stream, send an "error"
-  // event so the client can surface it instead of hanging.
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
 
-  const reader = ollamaRes.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let totalReply = "";
+  // Send an immediate keepalive comment so proxies/buffering layers see the
+  // connection as "active" before the first token arrives. SSE comment
+  // lines (starting with ":") are ignored by clients but keep
+  // intermediaries from treating the stream as idle during the model's
+  // first-token latency.
+  try {
+    res.write(": connected\n\n");
+  } catch {
+    // Client already disconnected before the stream began.
+  }
+
+  const reader = upstream.getReader();
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const parsed = JSON.parse(trimmed) as {
-            message?: { content?: string };
-            done?: boolean;
-            error?: string;
-          };
-          if (parsed.error) {
-            res.write(`event: error\ndata: ${JSON.stringify({ error: parsed.error })}\n\n`);
-            return res.end();
-          }
-          if (parsed.done) {
-            res.write(`event: done\ndata: ${JSON.stringify({ reply: totalReply })}\n\n`);
-            return res.end();
-          }
-          const delta = parsed.message?.content ?? "";
-          if (delta) {
-            totalReply += delta;
-            res.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
-          }
-        } catch {
-          // Malformed NDJSON line — skip. Ollama should never emit these
-          // but if it does, dropping them is safer than crashing the stream.
-        }
+      if (value) {
+        // res.write accepts Buffer or string; Uint8Array is fine.
+        res.write(Buffer.from(value));
       }
     }
-    // Stream closed without a done event. Treat as success with whatever
-    // we accumulated.
-    res.write(`event: done\ndata: ${JSON.stringify({ reply: totalReply })}\n\n`);
-    res.end();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stream interrupted";
     try {
       res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
-      res.end();
     } catch {
       // Client already disconnected.
     }
+  } finally {
+    // Await persistence before closing the response so we can emit
+    // the new doc id as an SSE event. The LLM stream has already
+    // ended (we're past the read loop) so the client has seen `done`
+    // and committed the reply to local state — we just need to hand
+    // back the Firestore doc id so the client can edit/delete this
+    // message later via the client SDK. The cost is one extra
+    // Firestore REST round-trip on the request hot path; acceptable
+    // for a PoC.
+    try {
+      const [reply, didComplete] = await Promise.all([finalReply, completed]);
+      if (reply && didComplete) {
+        try {
+          const messageId = await appendConversationMessage(
+            persona.id,
+            { role: "assistant", content: reply },
+            uid,
+            authorization
+          );
+          // Client may have disconnected mid-stream; res.write then
+          // throws. Swallow — we still want to release the slot.
+          try {
+            res.write(`event: id\ndata: ${JSON.stringify({ id: messageId })}\n\n`);
+          } catch {
+            // Client already disconnected.
+          }
+        } catch (err) {
+          logger.error("Failed to persist assistant reply", err);
+        }
+      }
+    } catch (err) {
+      logger.error("Failed to resolve finalReply", err);
+    }
+
+    releaseStreamSlot(uid);
+    res.end();
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { onAuthStateChanged, type User } from "firebase/auth";
-import { auth } from "../firebase/config";
+import { useAuth } from "../lib/auth/useAuth";
+import type { AuthUser } from "../lib/auth";
 import PersonaSelection from "../components/PersonaSelection";
 import Chat from "../components/Chat";
 
@@ -11,23 +11,17 @@ type Persona = {
 };
 
 export default function Dashboard() {
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading } = useAuth();
   const [persona, setPersona] = useState<Persona | null>(null);
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (!currentUser) {
-        router.push("/");
-      } else {
-        setUser(currentUser);
-      }
-    });
+    if (!loading && !user) {
+      router.push("/");
+    }
+  }, [user, loading, router]);
 
-    return () => unsubscribe();
-  }, [router]);
-
-  if (!user) {
+  if (loading || !user) {
     return (
       <div className="p-6">
         <p>Loading…</p>
@@ -47,9 +41,16 @@ export default function Dashboard() {
     <div className="p-6">
       <Chat
         persona={persona}
-        user={{ uid: user.uid }}
+        user={toChatUser(user)}
         onBack={() => setPersona(null)}
       />
     </div>
   );
+}
+
+// Chat expects { uid: string }. useAuth returns an AuthUser with the
+// same shape plus an optional email. Map it down so the component's
+// prop contract is preserved.
+function toChatUser(u: AuthUser): { uid: string } {
+  return { uid: u.uid };
 }
