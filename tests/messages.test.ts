@@ -4,18 +4,24 @@ import {
   reconcileMessages,
   isPersistedId,
 } from "../lib/messages";
-import type { ChatMessage } from "../lib/types";
-import type { DocumentChange, QueryDocumentSnapshot } from "firebase/firestore";
+import type {
+  ChatMessage,
+  FirestoreDocLike,
+  FirestoreChangeLike,
+} from "../lib/types";
 
-function snap(id: string, data: { role?: string; content?: string }): QueryDocumentSnapshot {
-  return { id, data: () => data } as QueryDocumentSnapshot;
+function snap(
+  id: string,
+  data: { role?: string; content?: string }
+): FirestoreDocLike {
+  return { id, data: () => data };
 }
 
 function change(
-  type: DocumentChange["type"],
-  doc: QueryDocumentSnapshot
-): DocumentChange {
-  return { type, doc } as DocumentChange;
+  type: FirestoreChangeLike["type"],
+  doc: FirestoreDocLike
+): FirestoreChangeLike {
+  return { type, doc };
 }
 
 describe("isPersistedId", () => {

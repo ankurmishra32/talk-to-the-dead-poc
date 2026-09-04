@@ -1,17 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { mapPersonaDoc, reconcilePersonas } from "../lib/personas";
-import type { PersonaItem } from "../lib/types";
-import type { DocumentChange, QueryDocumentSnapshot } from "firebase/firestore";
+import type {
+  PersonaItem,
+  FirestoreDocLike,
+  FirestoreChangeLike,
+} from "../lib/types";
 
-function snap(id: string, data: Record<string, unknown>): QueryDocumentSnapshot {
-  return { id, data: () => data } as QueryDocumentSnapshot;
+function snap(id: string, data: Record<string, unknown>): FirestoreDocLike {
+  return { id, data: () => data };
 }
 
 function change(
-  type: DocumentChange["type"],
-  doc: QueryDocumentSnapshot
-): DocumentChange {
-  return { type, doc } as DocumentChange;
+  type: FirestoreChangeLike["type"],
+  doc: FirestoreDocLike
+): FirestoreChangeLike {
+  return { type, doc };
 }
 
 const OWNER = "uid-1";

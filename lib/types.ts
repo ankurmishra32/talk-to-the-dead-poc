@@ -107,3 +107,22 @@ export type PersonaFirestoreDoc = {
   distinctiveStory?: string;
   traits?: string;
 };
+
+/**
+ * The minimal document shape our Firestore mapping helpers depend on.
+ *
+ * Both the real Firebase `QueryDocumentSnapshot` and lightweight test fakes
+ * are assignable to this, so the mapping/reconcile helpers can stay
+ * dependency-free (no Firebase import) and unit-testable with honest fakes
+ * instead of `as QueryDocumentSnapshot` casts.
+ */
+export type FirestoreDocLike = {
+  id: string;
+  data(): Record<string, unknown>;
+};
+
+/** A single change in a Firestore snapshot batch, narrowed to what we read. */
+export type FirestoreChangeLike = {
+  type: "added" | "modified" | "removed";
+  doc: FirestoreDocLike;
+};

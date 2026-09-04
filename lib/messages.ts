@@ -1,14 +1,10 @@
 // Pure helpers for transforming Firestore message documents into the
 // UI's ChatMessage shape, and for applying incremental onSnapshot change
-// batches. Kept side-effect free (no Firebase runtime imports — only the
-// query types) so they can be unit-tested in isolation.
-//
-// Only the `type` import of QueryDocumentSnapshot / DocumentChange is used;
-// these are erased at compile time, so this module has no runtime dependency
-// on the Firebase SDK.
+// batches. Kept side-effect free and dependency-free (no Firebase imports —
+// operates on the minimal FirestoreDocLike / FirestoreChangeLike shapes) so
+// they can be unit-tested in isolation with lightweight fakes.
 
-import type { DocumentChange, QueryDocumentSnapshot } from "firebase/firestore";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, FirestoreDocLike, FirestoreChangeLike } from "./types";
 
 /** True when a message id corresponds to a real persisted Firestore doc. */
 export function isPersistedId(id: string | undefined): id is string {
@@ -22,7 +18,7 @@ export function isPersistedId(id: string | undefined): id is string {
  * route only writes well-formed messages, but if a legacy/hand-written
  * doc slips through we don't want it crashing the render.
  */
-export function mapMessageDocs(docs: QueryDocumentSnapshot[]): ChatMessage[] {
+export function mapMessageDocs(docs: FirestoreDocLike[]): ChatMessage[] {
   return docs
     .map((d): ChatMessage | null => {
       const data = d.data() as { role?: string; content?: string };
@@ -52,7 +48,7 @@ export function mapMessageDocs(docs: QueryDocumentSnapshot[]): ChatMessage[] {
  */
 export function reconcileMessages(
   prev: ChatMessage[],
-  changes: DocumentChange[],
+  changes: FirestoreChangeLike[],
   dirtyIds: Set<string>
 ): ChatMessage[] {
   if (changes.length === 0) return prev;

@@ -1,9 +1,15 @@
 // Pure helpers for transforming Firestore persona documents into the UI's
 // PersonaItem shape, and for applying incremental onSnapshot change batches.
-// Kept side-effect free so they can be unit-tested in isolation.
+// Kept side-effect free and dependency-free (no Firebase imports — operates
+// on the minimal FirestoreDocLike / FirestoreChangeLike shapes) so they can
+// be unit-tested in isolation with lightweight fakes.
 
-import type { DocumentChange, QueryDocumentSnapshot } from "firebase/firestore";
-import type { PersonaItem, PersonaFirestoreDoc } from "./types";
+import type {
+  PersonaItem,
+  PersonaFirestoreDoc,
+  FirestoreDocLike,
+  FirestoreChangeLike,
+} from "./types";
 
 /**
  * Maps a Firestore persona doc to our local shape. Defensive on every
@@ -12,7 +18,7 @@ import type { PersonaItem, PersonaFirestoreDoc } from "./types";
  * requesting user anyway, so we only render what the user owns.
  */
 export function mapPersonaDoc(
-  d: QueryDocumentSnapshot,
+  d: FirestoreDocLike,
   ownerId: string
 ): PersonaItem | null {
   const data = d.data() as PersonaFirestoreDoc;
@@ -41,7 +47,7 @@ export function mapPersonaDoc(
  */
 export function reconcilePersonas(
   prev: PersonaItem[],
-  changes: DocumentChange[],
+  changes: FirestoreChangeLike[],
   ownerId: string
 ): PersonaItem[] {
   if (changes.length === 0) return prev;
