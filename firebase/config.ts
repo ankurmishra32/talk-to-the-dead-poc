@@ -1,14 +1,27 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, type FirebaseOptions } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDvpkcGA6TOGkmzd_7y88Hdk46Di3xfStk",
-  authDomain: "be-right-back-b47be.firebaseapp.com",
-  projectId: "be-right-back-b47be",
-  storageBucket: "be-right-back-b47be.appspot.com",
-  messaging_sender: "101066195788132532918",
-  app_id: "be-right-back-b47be" // Replace with your full App ID from the Firebase Console
+// Client-side Firebase configuration, loaded from NEXT_PUBLIC_* env vars.
+//
+// These values are shipped to the browser in the JS bundle, so this is
+// deliberately NOT secret material — a Firebase browser API key is public
+// by design (the deployed bundle serves it to every visitor). The real
+// protection is restricting that key by HTTP referrer in Google Cloud
+// Console (see README.md). The server half reads FIREBASE_API_KEY from
+// process.env separately in lib/firestore.ts / lib/auth/firebase.server.ts.
+//
+// The projectId / databaseId defaults mirror lib/firestore.ts so client and
+// server stay in sync; override any of them in .env.local to deviate.
+
+const firebaseConfig: FirebaseOptions = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "be-right-back-b47be.firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "be-right-back-b47be",
+  storageBucket:
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "be-right-back-b47be.appspot.com",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -17,5 +30,10 @@ const app = initializeApp(firebaseConfig);
 // Must match the database the server-side wrapper in lib/firestore.ts queries.
 const DATABASE_ID = "talk-to-the-dead";
 
+// Both `auth` and `db` are exported from this single Firebase app
+// initialization. They are imported by the client auth adapter (via
+// lib/auth/firebase.client.ts) and by the Firestore-touching components.
+// The server bundle never reaches this file because lib/auth/server.ts
+// only imports the REST-based server half.
 export const auth = getAuth(app);
 export const db = getFirestore(app, DATABASE_ID);

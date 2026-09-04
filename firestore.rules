@@ -1,0 +1,128 @@
+rules_version = '2';
+
+// Firestore security rules for talk-to-the-dead-poc.
+//
+// Before these rules, the database was effectively world-readable and
+// world-writable: anyone who knew the project ID (visible in
+// firebase/config.ts) could call the REST API or open a browser
+// session and read every persona and memory in the database.
+//
+// These rules enforce the same ownership boundary the server-side
+// getPersona() check in lib/firestore.ts enforces for the chat route,
+// but at the DB level. The client SDK (used by components/
+// PersonaSelection.tsx and components/MemoryInput.tsx) will now be
+// stopped by the rules if it tries to read or write another user's
+// documents.
+//
+// The client SDK and /api/chat's REST requests both send a Firebase ID
+// token, so these rules are the primary ownership boundary for every
+// Firestore read and write.
+//
+// To deploy:
+//   npm install -g firebase-tools   # if not installed
+//   firebase login
+//   firebase use --add              # link this project
+//   firebase deploy --only firestore:rules
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Personas: a user can create, read, and (in principle) update
+    // and delete their own. The client UI only creates today; update
+    // and delete are allowed so the user is not locked out of
+    // future-self changes. The create-time check on userId prevents
+    // a client from creating a document owned by someone else.
+    match /personas/{personaId} {
+      allow read: if isSignedIn()
+                   && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+                    && request.resource.data.userId == request.auth.uid;
+
+      allow update: if isSignedIn()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId;
+
+      allow delete: if isSignedIn()
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // Memories: same ownership boundary. The client only creates;
+    // update/delete are allowed for future use and for owner-driven
+    // pruning.
+    match /memories/{memoryId} {
+      allow read: if isSignedIn()
+                   && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+                    && request.resource.data.userId == request.auth.uid;
+
+      allow update: if isSignedIn()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId;
+
+      allow delete: if isSignedIn()
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // Conversation history. Each turn is a document under
+    // /conversations/{personaId}/messages/{msgId}. Same ownership
+    // boundary as personas and memories.
+    //
+    // Ownership is enforced via an `ownerUid` field denormalized onto
+    // every message (set at write time by the client and the server
+    // route). We deliberately do NOT call get() against the parent
+    // persona document here: Firestore caps rule-evaluator get() calls
+    // at 10 per query, and this rule runs per matched document on a
+    // subcollection query (Chat.tsx reads the latest 40 messages), so a
+    // get() here would make large reads fail. The `personaId` is also
+    // denormalized so the create/update rules can assert the message is
+    // written under the intended persona path.
+    //
+    // Because `ownerUid` is written by the same code that sets `userId`
+    // (and is asserted equal to the requester's UID), it is as trustworthy
+    // as `userId` for ownership. The server route additionally re-checks
+    // persona ownership before persisting an assistant reply.
+    //
+    // Reads accept either `ownerUid` or the legacy `userId` so that
+    // messages written before ownerUid existed remain readable after the
+    // rules deploy (both fields carry the same owner uid; the rule never
+    // calls get(), avoiding the 10-read-per-query cap on subcollection
+    // reads).
+    match /conversations/{personaId}/messages/{msgId} {
+      allow read: if isSignedIn()
+                   && (resource.data.ownerUid == request.auth.uid
+                       || resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn()
+                    && request.resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.ownerUid == request.resource.data.userId
+                    && request.resource.data.personaId == personaId;
+
+      allow update: if isSignedIn()
+                    && resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.ownerUid == resource.data.ownerUid
+                    && request.resource.data.ownerUid == request.resource.data.userId
+                    && request.resource.data.personaId == personaId
+                    && request.resource.data.personaId == resource.data.personaId;
+
+      allow delete: if isSignedIn()
+                    && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Default-deny anything not explicitly allowed above. Adding a
+    // new collection requires an explicit rule.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+  }
+}
