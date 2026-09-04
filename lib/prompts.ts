@@ -1,9 +1,7 @@
 // Pure function that assembles the system prompt for the persona chat.
 // Importable from the API route and from any future tests.
 
-import type { SpeechExample, PersonaDoc, MemoryDoc } from "./types";
-
-export type { SpeechExample, PersonaDoc, MemoryDoc };
+import type { PersonaDoc, MemoryDoc } from "./types";
 
 /**
  * Builds the system prompt for a given persona + memories.

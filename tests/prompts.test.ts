@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt } from "../lib/prompts";
-import type { PersonaDoc, MemoryDoc } from "../lib/prompts";
+import type { PersonaDoc, MemoryDoc } from "../lib/types";
 
 function basePersona(): PersonaDoc {
   return {

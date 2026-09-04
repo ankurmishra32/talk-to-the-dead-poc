@@ -5,6 +5,7 @@
 // chat-completion chunk and the final payload is `data: [DONE]`.
 
 import type { ChatRequest, LlmAdapter, LlmStream } from "./types";
+import { sseDelta, sseDone, sseError } from "./sse";
 
 function getBaseUrl(): string {
   return (process.env.LM_STUDIO_BASE_URL || "http://localhost:1234/v1").replace(/\/$/, "");
@@ -22,13 +23,6 @@ function getHeaders(): HeadersInit {
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
   };
 }
-
-const SSE_DELTA = (delta: string) =>
-  new TextEncoder().encode(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
-const SSE_DONE = (reply: string) =>
-  new TextEncoder().encode(`event: done\ndata: ${JSON.stringify({ reply })}\n\n`);
-const SSE_ERROR = (error: string) =>
-  new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
 
 function eventData(block: string): string {
   return block
@@ -56,7 +50,7 @@ export const lmStudioAdapter: LlmAdapter = {
       const message = err instanceof Error ? err.message : "Unknown network error";
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(SSE_ERROR(`Could not reach LM Studio: ${message}`));
+          controller.enqueue(sseError(`Could not reach LM Studio: ${message}`));
           controller.close();
         },
       });
@@ -73,7 +67,7 @@ export const lmStudioAdapter: LlmAdapter = {
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(
-            SSE_ERROR(`LM Studio responded ${response.status}: ${detail || "(no body)"}`)
+            sseError(`LM Studio responded ${response.status}: ${detail || "(no body)"}`)
           );
           controller.close();
         },
@@ -102,7 +96,7 @@ export const lmStudioAdapter: LlmAdapter = {
             const { value, done } = await reader.read();
             if (done) {
               try {
-                controller.enqueue(SSE_ERROR("LM Studio ended before completing the reply."));
+                controller.enqueue(sseError("LM Studio ended before completing the reply."));
                 controller.close();
               } catch {
                 // The client may already be disconnected.
@@ -122,7 +116,7 @@ export const lmStudioAdapter: LlmAdapter = {
 
               if (data === "[DONE]") {
                 try {
-                  controller.enqueue(SSE_DONE(totalReply));
+                  controller.enqueue(sseDone(totalReply));
                   controller.close();
                 } catch {
                   // The client may already be disconnected.
@@ -142,7 +136,7 @@ export const lmStudioAdapter: LlmAdapter = {
                     typeof chunk.error === "string"
                       ? chunk.error
                       : chunk.error.message || "LM Studio stream error.";
-                  controller.enqueue(SSE_ERROR(error));
+                  controller.enqueue(sseError(error));
                   controller.close();
                   resolveFinal(totalReply);
                   resolveCompleted(false);
@@ -152,7 +146,7 @@ export const lmStudioAdapter: LlmAdapter = {
                 const delta = chunk.choices?.[0]?.delta?.content;
                 if (delta) {
                   totalReply += delta;
-                  controller.enqueue(SSE_DELTA(delta));
+                  controller.enqueue(sseDelta(delta));
                 }
               } catch {
                 // Ignore non-JSON keep-alives or malformed chunks. The
@@ -163,7 +157,7 @@ export const lmStudioAdapter: LlmAdapter = {
         } catch (err) {
           const message = err instanceof Error ? err.message : "Stream interrupted";
           try {
-            controller.enqueue(SSE_ERROR(message));
+            controller.enqueue(sseError(message));
             controller.close();
           } catch {
             // The client may already be disconnected.

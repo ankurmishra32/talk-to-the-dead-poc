@@ -19,6 +19,7 @@ export type SpeechExample = {
 export type PersonaDoc = {
   id: string;
   name: string;
+  ownerId?: string;
   // Legacy free-text trait field. Empty for new personas; may be populated
   // for older ones. Note: lib/prompts.ts uses `traits: string`, while the
   // server's getPersona surfaces it as a string. Kept required for the

@@ -1,21 +1,16 @@
 // Ollama implementation of LlmAdapter.
 //
-// Today the equivalent code lives inline in pages/api/chat.ts:
-//   1. fetch(`${OLLAMA_HOST}/api/chat`) with stream:true
-//   2. Read NDJSON lines from Ollama
-//   3. Re-emit each line as the server's SSE vocabulary:
-//        {"message":{"content":"<delta>"},"done":false}  -> "event: delta"
-//        {"done":true,...}                                -> "event: done"
-//        {"error":"..."}                                  -> "event: error"
+// Uses Ollama's NDJSON chat stream (/api/chat with stream:true) and
+// re-emits each record as the server's SSE event vocabulary:
+//   {"message":{"content":"<delta>"},"done":false}  -> "event: delta"
+//   {"done":true,...}                                -> "event: done"
+//   {"error":"..."}                                  -> "event: error"
 //
-// This module owns all three. The chat route just calls streamChat
-// and pipes the resulting stream to the client. The stream is
-// already SSE-formatted bytes, so the route doesn't need to know
-// what an NDJSON line is. The route also gets a finalReply promise
-// for persistence, so it doesn't need to re-parse the SSE bytes it
-// just wrote.
+// The chat route just calls streamChat and pipes the resulting SSE bytes
+// to the client, and reads finalReply for persistence.
 
 import type { LlmAdapter, ChatRequest, LlmStream } from "./types";
+import { sseDelta, sseDone, sseError } from "./sse";
 
 function getOllamaHost(): string {
   return process.env.OLLAMA_HOST || "http://localhost:11434";
@@ -24,13 +19,6 @@ function getOllamaHost(): string {
 function getOllamaModel(): string {
   return process.env.OLLAMA_MODEL || "llama3.2";
 }
-
-const SSE_DELTA = (delta: string) =>
-  new TextEncoder().encode(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
-const SSE_DONE = (reply: string) =>
-  new TextEncoder().encode(`event: done\ndata: ${JSON.stringify({ reply })}\n\n`);
-const SSE_ERROR = (error: string) =>
-  new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
 
 export const ollamaAdapter: LlmAdapter = {
   async streamChat(req: ChatRequest, signal: AbortSignal): Promise<LlmStream> {
@@ -52,7 +40,7 @@ export const ollamaAdapter: LlmAdapter = {
       const message = err instanceof Error ? err.message : "Unknown network error";
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(SSE_ERROR(`Could not reach Ollama: ${message}`));
+          controller.enqueue(sseError(`Could not reach Ollama: ${message}`));
           controller.close();
         },
       });
@@ -72,7 +60,7 @@ export const ollamaAdapter: LlmAdapter = {
       }
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(SSE_ERROR(`Ollama responded ${ollamaRes.status}: ${detail || "(no body)"}`));
+          controller.enqueue(sseError(`Ollama responded ${ollamaRes.status}: ${detail || "(no body)"}`));
           controller.close();
         },
       });
@@ -110,7 +98,7 @@ export const ollamaAdapter: LlmAdapter = {
               // A normal Ollama response ends with a done record. Without
               // one, the accumulated text may be a truncated reply.
               try {
-                controller.enqueue(SSE_ERROR("Ollama ended before completing the reply."));
+                controller.enqueue(sseError("Ollama ended before completing the reply."));
                 controller.close();
               } catch {
                 // already closed
@@ -133,7 +121,7 @@ export const ollamaAdapter: LlmAdapter = {
                 };
                 if (parsed.error) {
                   try {
-                    controller.enqueue(SSE_ERROR(parsed.error));
+                    controller.enqueue(sseError(parsed.error));
                     controller.close();
                   } catch {
                     // already closed
@@ -144,7 +132,7 @@ export const ollamaAdapter: LlmAdapter = {
                 }
                 if (parsed.done) {
                   try {
-                    controller.enqueue(SSE_DONE(totalReply));
+                    controller.enqueue(sseDone(totalReply));
                     controller.close();
                   } catch {
                     // already closed
@@ -156,7 +144,7 @@ export const ollamaAdapter: LlmAdapter = {
                 const delta = parsed.message?.content ?? "";
                 if (delta) {
                   totalReply += delta;
-                  controller.enqueue(SSE_DELTA(delta));
+                  controller.enqueue(sseDelta(delta));
                 }
               } catch {
                 // Malformed NDJSON line — skip. Ollama should never
@@ -171,7 +159,7 @@ export const ollamaAdapter: LlmAdapter = {
           // will see the stream close and surface a generic message.
           const message = err instanceof Error ? err.message : "Stream interrupted";
           try {
-            controller.enqueue(SSE_ERROR(message));
+            controller.enqueue(sseError(message));
             controller.close();
           } catch {
             // Already closed.

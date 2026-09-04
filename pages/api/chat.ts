@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { buildSystemPrompt } from "../../lib/prompts";
 import { getPersona, listMemoriesForPersona, appendConversationMessage } from "../../lib/firestore";
-import type { PersonaDoc, MemoryDoc } from "../../lib/firestore";
+import type { PersonaDoc, MemoryDoc } from "../../lib/types";
+import type { ChatMessage } from "../../lib/llm/types";
 import { authAdapter } from "../../lib/auth/server";
 import { llmAdapter } from "../../lib/llm";
 import {
@@ -12,11 +13,6 @@ import {
 import { createLogger } from "../../lib/logger";
 
 const logger = createLogger("api/chat");
-
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
 
 type Body = {
   personaId: string;

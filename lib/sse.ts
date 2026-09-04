@@ -3,10 +3,6 @@
 // Importable from the client components and from tests. Kept side-effect
 // free (no imports) so it runs in any environment.
 
-export type SseEvent =
-  | { event: string; data: unknown }
-  | { event: string; data: { raw: string } };
-
 /**
  * Parses a single SSE event block (text between two blank lines) into
  * { event, data }. Returns null if the block has no data line.

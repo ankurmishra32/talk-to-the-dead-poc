@@ -15,8 +15,7 @@
 
 const FIRESTORE_BASE = "https://firestore.googleapis.com/v1";
 
-import type { SpeechExample } from "./types";
-export type { SpeechExample };
+import type { SpeechExample, PersonaDoc, MemoryDoc } from "./types";
 
 function getProjectId(): string {
   // Pulled from the same config the client uses. Keeping the value here
@@ -133,37 +132,6 @@ export function readSpeechExamples(
     })
     .filter((e): e is SpeechExample => e !== null);
 }
-
-export type PersonaDoc = {
-  id: string;
-  name: string;
-  ownerId: string;
-  // Legacy free-text trait field. Still filled by older personas; for new
-  // personas we leave it empty and rely on the structured fields below.
-  traits: string;
-  // Structured fields collected by the guided interview.
-  relationship?: string;
-  theyCalledYou?: string;
-  languages?: string[];
-  howTheySpoke?: string[];
-  speechExamples?: SpeechExample[];
-  oftenSaid?: string[];
-  distinctiveStory?: string;
-};
-
-export type MemoryDoc = {
-  text: string;
-  createdAt?: string | null;
-};
-
-export type ConversationMessageDoc = {
-  role: "user" | "assistant";
-  content: string;
-  userId: string;
-  ownerUid: string;
-  personaId: string;
-  createdAt?: string | null;
-};
 
 /**
  * Fetches a persona by id. If `requestingUid` is provided, the persona is
