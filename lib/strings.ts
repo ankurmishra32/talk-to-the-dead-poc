@@ -63,6 +63,22 @@ export const strings = {
     },
   },
 
+  account: {
+    settingsButton: "Account settings",
+    deleteTitle: "Delete your account",
+    deleteWarning:
+      "This will permanently delete your account, all personas, memories, and conversation history. This cannot be undone.",
+    passwordLabel: "Enter your password to confirm",
+    passwordPlaceholder: "Your password",
+    confirmLabel: 'Type DELETE to confirm',
+    confirmPlaceholder: "DELETE",
+    confirmMismatch: "Please type DELETE exactly",
+    deleteButton: "Delete my account",
+    deleting: "Deleting...",
+    authError: "Incorrect password. Please try again.",
+    successMessage: "Account deleted. Redirecting...",
+  },
+
   dashboard: {
     loading: "Loading...",
   },

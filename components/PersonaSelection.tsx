@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { db } from "../firebase/config";
+import { db, auth } from "../firebase/config";
 import {
   collection,
   addDoc,
@@ -17,6 +17,7 @@ import { mapPersonaDoc, reconcilePersonas } from "../lib/personas";
 import type { PersonaItem, PersonaReference } from "../lib/types";
 import { createLogger } from "../lib/logger";
 import Confirm from "./Confirm";
+import DeleteAccountModal from "./DeleteAccountModal";
 import { strings } from "../lib/strings";
 
 const logger = createLogger("PersonaSelection");
@@ -40,6 +41,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   const [existing, setExisting] = useState<PersonaItem[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const formRef = useRef<HTMLDivElement | null>(null);
   const { user, signOut } = useAuth();
   const userId = user?.uid ?? null;
@@ -430,9 +432,14 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold" style={{ color: "var(--color-text-primary)" }}>{strings.persona.heading}</h2>
-        <button onClick={handleSignOut} className="text-sm font-medium" style={{ color: "var(--color-text-muted)" }}>
-          {strings.common.signOut}
-        </button>
+        <div className="flex items-center gap-4">
+          <button onClick={() => setShowDeleteAccount(true)} className="text-sm font-medium" style={{ color: "var(--color-text-muted)" }}>
+            {strings.account.settingsButton}
+          </button>
+          <button onClick={handleSignOut} className="text-sm font-medium" style={{ color: "var(--color-text-muted)" }}>
+            {strings.common.signOut}
+          </button>
+        </div>
       </div>
 
       {/* Existing personas list */}
@@ -551,6 +558,15 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
         onConfirm={() => { if (pendingDelete) handleDelete(pendingDelete); setPendingDelete(null); }}
         onCancel={() => setPendingDelete(null)}
       />
+
+      {auth.currentUser && (
+        <DeleteAccountModal
+          open={showDeleteAccount}
+          user={auth.currentUser}
+          onClose={() => setShowDeleteAccount(false)}
+          onDeleted={handleSignOut}
+        />
+      )}
     </div>
   );
 }
