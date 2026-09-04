@@ -352,9 +352,10 @@ npm run dev      # Dev server with Turbopack (http://localhost:3000)
 npm run build    # Production build
 npm start        # Serve production build
 npm run lint     # ESLint (next/core-web-vitals + next/typescript), flat config in eslint.config.mjs
+npm test         # Vitest unit tests (tests/) — prompts, Firestore parsers, SSE, helpers
 ```
 
-There are **no tests** configured for this project.
+Unit tests live in `tests/` and run with Vitest (`npm test`). CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, and the production build on every push/PR.
 
 ---
 
