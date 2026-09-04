@@ -54,46 +54,24 @@ export default function MemoryInput({
     async function loadMemories() {
       try {
         const q = persona?.id
-          ? query(
-              collection(db, "memories"),
-              where("userId", "==", user.uid),
-              where("personaId", "==", persona.id),
-              orderBy("createdAt", "desc"),
-              limit(50)
-            )
-          : query(
-              collection(db, "memories"),
-              where("userId", "==", user.uid),
-              orderBy("createdAt", "desc"),
-              limit(50)
-            );
+          ? query(collection(db, "memories"), where("userId", "==", user.uid), where("personaId", "==", persona.id), orderBy("createdAt", "desc"), limit(50))
+          : query(collection(db, "memories"), where("userId", "==", user.uid), orderBy("createdAt", "desc"), limit(50));
         const snap = await getDocs(q);
         if (cancelled) return;
-        const items: MemoryItem[] = snap.docs
-          .map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              text: (data.text as string) || "",
-              createdAt: data.createdAt ?? null,
-              userId: (data.userId as string) || "",
-              personaId: (data.personaId as string) || null,
-            };
-          });
+        const items: MemoryItem[] = snap.docs.map((d) => {
+          const data = d.data();
+          return { id: d.id, text: (data.text as string) || "", createdAt: data.createdAt ?? null, userId: (data.userId as string) || "", personaId: (data.personaId as string) || null };
+        });
         setMemories(items);
       } catch (err) {
-        if (!cancelled) {
-          logger.error("Failed to load memories", err);
-        }
+        if (!cancelled) logger.error("Failed to load memories", err);
       } finally {
         if (!cancelled) setListLoading(false);
       }
     }
 
     loadMemories();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [persona?.id, user.uid]);
 
   const handleAddMemory = async (e: React.FormEvent) => {
@@ -105,20 +83,9 @@ export default function MemoryInput({
 
     try {
       const docRef = await addDoc(collection(db, "memories"), {
-        userId: user.uid,
-        personaId: persona?.id ?? null,
-        text: trimmed,
-        createdAt: Timestamp.now(),
+        userId: user.uid, personaId: persona?.id ?? null, text: trimmed, createdAt: Timestamp.now(),
       });
-
-      const newMemory: MemoryItem = {
-        id: docRef.id,
-        userId: user.uid,
-        personaId: persona?.id ?? null,
-        text: trimmed,
-        createdAt: new Date(),
-      };
-      setMemories((prev) => [newMemory, ...prev]);
+      setMemories((prev) => [{ id: docRef.id, userId: user.uid, personaId: persona?.id ?? null, text: trimmed, createdAt: new Date() }, ...prev]);
       setText("");
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2000);
@@ -130,29 +97,16 @@ export default function MemoryInput({
     }
   };
 
-  const startEdit = (m: MemoryItem) => {
-    setEditingId(m.id);
-    setEditingText(m.text);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditingText("");
-  };
+  const startEdit = (m: MemoryItem) => { setEditingId(m.id); setEditingText(m.text); };
+  const cancelEdit = () => { setEditingId(null); setEditingText(""); };
 
   const handleSaveEdit = async (id: string) => {
     const trimmed = editingText.trim();
     if (!trimmed) return;
     setError(null);
-
     try {
-      await updateDoc(doc(db, "memories", id), {
-        text: trimmed,
-        updatedAt: Timestamp.now(),
-      });
-      setMemories((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, text: trimmed } : m))
-      );
+      await updateDoc(doc(db, "memories", id), { text: trimmed, updatedAt: Timestamp.now() });
+      setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, text: trimmed } : m)));
       setEditingId(null);
       setEditingText("");
     } catch (err) {
@@ -163,60 +117,41 @@ export default function MemoryInput({
 
   const handleDeleteMemory = async (id: string) => {
     setError(null);
-
     try {
       await deleteDoc(doc(db, "memories", id));
       setMemories((prev) => prev.filter((m) => m.id !== id));
-      if (editingId === id) {
-        setEditingId(null);
-        setEditingText("");
-      }
+      if (editingId === id) { setEditingId(null); setEditingText(""); }
     } catch (err) {
       logger.error("Failed to delete memory", err);
       setError(err instanceof Error ? err.message : strings.memoryInput.deleteFailed);
     }
   };
 
-  const addMemoryAction = strings.memoryInput.addMemoryAction;
-  const addMemoryFor = persona?.name
-    ? ` ${strings.memoryInput.addMemoryFor(persona.name)}`
-    : "";
+  const inputCls = "w-full px-4 py-3 rounded-2xl text-sm border resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-stone-400";
+  const inputStyle = { background: "var(--color-surface-raised)", color: "var(--color-text-primary)", borderColor: "var(--color-border)" };
 
   return (
     <div className="space-y-4">
-      {/* Add New Memory Form */}
       <form onSubmit={handleAddMemory} className="space-y-3">
         <div className="flex items-center justify-between">
-          <label htmlFor="memory-text" className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
-            {addMemoryAction}{addMemoryFor}
+          <label htmlFor="memory-text" className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>
+            {strings.memoryInput.addMemoryAction}{persona?.name ? ` ${strings.memoryInput.addMemoryFor(persona.name)}` : ""}
           </label>
-          <span className="text-xs text-gray-500">
-            {strings.memoryInput.helper}
-          </span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{strings.memoryInput.helper}</span>
         </div>
-        <textarea
-          id="memory-text"
-          className="w-full border p-2.5 rounded text-sm bg-white"
-          placeholder={
-            persona?.name
-              ? strings.memoryInput.textareaPlaceholderFor(persona.name)
-              : strings.memoryInput.textareaPlaceholder
-          }
-          rows={3}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          disabled={saving}
+        <textarea id="memory-text" className={inputCls} style={{ ...inputStyle, minHeight: "5rem" }}
+          placeholder={persona?.name ? strings.memoryInput.textareaPlaceholderFor(persona.name) : strings.memoryInput.textareaPlaceholder}
+          value={text} onChange={(e) => setText(e.target.value)} disabled={saving}
         />
         <div className="flex items-center justify-between">
-          <button
-            className="bg-blue-600 text-white text-sm px-4 py-1.5 rounded hover:bg-blue-700 disabled:bg-gray-400 font-medium"
-            type="submit"
-            disabled={!text.trim() || saving}
-          >
+          <button type="submit" disabled={!text.trim() || saving}
+            className="px-5 py-2.5 rounded-2xl text-sm font-semibold text-white shadow-lg shadow-indigo-200/40 disabled:opacity-40 active:scale-[0.97]"
+            style={{ background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)" }}>
             {saving ? strings.memoryInput.saving : strings.memoryInput.saveMemory}
           </button>
           {savedSuccess && (
-            <span className="text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded border border-green-200">
+            <span className="text-xs font-medium px-3 py-1 rounded-xl border"
+              style={{ color: "var(--color-success)", background: "var(--color-success-light)", borderColor: "rgba(22,163,74,0.15)" }}>
               {strings.memoryInput.savedSuccess}
             </span>
           )}
@@ -224,77 +159,44 @@ export default function MemoryInput({
       </form>
 
       {error && (
-        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+        <div className="text-xs rounded-2xl px-4 py-3 border" style={{ color: "var(--color-danger)", background: "var(--color-danger-light)", borderColor: "rgba(220,38,38,0.15)" }}>
           {error}
         </div>
       )}
 
-      {/* Existing Memories List */}
-      <div className="pt-3 border-t space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-            {strings.memoryInput.savedMemoriesHeading(memories.length)}
-          </span>
-        </div>
+      <div className="pt-4 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
+        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
+          {strings.memoryInput.savedMemoriesHeading(memories.length)}
+        </span>
 
         {listLoading ? (
-          <p className="text-xs text-gray-500 italic py-2">{strings.memoryInput.loadingList}</p>
+          <p className="text-xs italic py-2" style={{ color: "var(--color-text-muted)" }}>{strings.memoryInput.loadingList}</p>
         ) : memories.length === 0 ? (
-          <p className="text-xs text-gray-500 italic py-2">
-            {strings.memoryInput.emptyList}
-          </p>
+          <p className="text-xs italic py-2" style={{ color: "var(--color-text-muted)" }}>{strings.memoryInput.emptyList}</p>
         ) : (
           <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
             {memories.map((m) => (
-              <div
-                key={m.id}
-                className="p-2.5 bg-white border rounded text-xs text-gray-800 shadow-sm relative group"
-              >
+              <div key={m.id} className="p-3 rounded-2xl border text-xs shadow-sm relative group" style={{ background: "var(--color-surface-raised)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}>
                 {editingId === m.id ? (
                   <div className="space-y-2">
-                    <textarea
-                      value={editingText}
-                      onChange={(e) => setEditingText(e.target.value)}
-                      rows={3}
-                      aria-label={strings.memoryInput.editMemoryAria}
-                      className="w-full border p-2 rounded text-xs bg-white resize-none"
-                    />
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        type="button"
-                        onClick={cancelEdit}
-                        className="border px-2.5 py-1 rounded hover:bg-gray-50 text-gray-600"
-                      >
-                        {strings.common.cancel}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSaveEdit(m.id)}
-                        disabled={!editingText.trim()}
-                        className="bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 disabled:bg-gray-400 font-medium"
-                      >
-                        {strings.common.save}
-                      </button>
+                    <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} rows={3} aria-label={strings.memoryInput.editMemoryAria}
+                      className="w-full border p-2 rounded-xl text-xs bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20" style={{ borderColor: "var(--color-border)" }} />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={cancelEdit} className="px-3 py-1 rounded-xl text-xs font-medium border hover:bg-stone-50"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>{strings.common.cancel}</button>
+                      <button type="button" onClick={() => handleSaveEdit(m.id)} disabled={!editingText.trim()}
+                        className="px-3 py-1 rounded-xl text-xs font-semibold text-white disabled:opacity-40"
+                        style={{ background: "var(--color-brand)" }}>{strings.common.save}</button>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-start justify-between space-x-2">
-                    <p className="flex-1 whitespace-pre-wrap">{m.text}</p>
-                    <div className="flex items-center space-x-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => startEdit(m)}
-                        className="text-gray-600 hover:text-gray-900 border px-1.5 py-0.5 rounded text-[11px] bg-gray-50 hover:bg-gray-100"
-                      >
-                        {strings.common.edit}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingDeleteId(m.id)}
-                        className="text-red-600 hover:text-red-800 border border-red-200 px-1.5 py-0.5 rounded text-[11px] bg-red-50 hover:bg-red-100"
-                      >
-                        {strings.common.delete}
-                      </button>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="flex-1 whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
+                      <button type="button" onClick={() => startEdit(m)} className="text-xs px-2 py-0.5 rounded-lg border font-medium"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>{strings.common.edit}</button>
+                      <button type="button" onClick={() => setPendingDeleteId(m.id)} className="text-xs px-2 py-0.5 rounded-lg border font-medium"
+                        style={{ borderColor: "rgba(220,38,38,0.15)", color: "var(--color-danger)" }}>{strings.common.delete}</button>
                     </div>
                   </div>
                 )}
@@ -308,10 +210,7 @@ export default function MemoryInput({
         open={pendingDeleteId !== null}
         title={strings.memoryInput.confirmDeleteTitle}
         message={strings.memoryInput.confirmDeleteMessage}
-        onConfirm={() => {
-          if (pendingDeleteId) handleDeleteMemory(pendingDeleteId);
-          setPendingDeleteId(null);
-        }}
+        onConfirm={() => { if (pendingDeleteId) handleDeleteMemory(pendingDeleteId); setPendingDeleteId(null); }}
         onCancel={() => setPendingDeleteId(null)}
       />
     </div>

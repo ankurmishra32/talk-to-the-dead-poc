@@ -454,34 +454,54 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     }
   };
 
+  const headerBtnClass = (active: boolean) =>
+    `text-xs font-medium px-3 py-1.5 rounded-xl border transition-all duration-150 ${
+      active
+        ? "shadow-sm"
+        : "hover:bg-stone-50"
+    }`;
+
   return (
-    <div className="max-w-2xl mx-auto bg-white rounded shadow">
-      <header className="flex items-center justify-between p-4 border-b">
+    <div
+      className="max-w-2xl mx-auto rounded-3xl overflow-hidden flex flex-col"
+      style={{ background: "var(--color-surface-raised)", boxShadow: "0 8px 40px -8px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)", height: "min(85vh, 720px)" }}
+    >
+      {/* Header */}
+      <header
+        className="shrink-0 px-6 py-4 flex items-center justify-between"
+        style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-raised)" }}
+      >
         <div>
-          <div className="flex items-center space-x-2">
-            <span className="text-lg font-semibold text-gray-900">
+          <div className="flex items-center gap-2.5">
+            <span className="text-lg font-semibold" style={{ color: "var(--color-text-primary)" }}>
               {strings.chat.header(persona.name)}
             </span>
             {profile?.relationship && (
-              <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+              <span
+                className="text-xs px-2.5 py-0.5 rounded-full font-medium"
+                style={{ background: "var(--color-brand-light)", color: "var(--color-brand)" }}
+              >
                 {profile.relationship}
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-500">{strings.chat.disclaimer}</div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            {strings.chat.disclaimer}
+          </div>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={() => {
               setShowProfile((v) => !v);
               if (!showProfile) setShowMemoryInput(false);
             }}
-            className={`text-sm border px-3 py-1 rounded transition-colors ${
-              showProfile
-                ? "bg-gray-100 border-gray-400 text-gray-900 font-medium"
-                : "hover:bg-gray-50 text-gray-700"
-            }`}
+            className={headerBtnClass(showProfile)}
+            style={{
+              background: showProfile ? "var(--color-brand-light)" : "transparent",
+              borderColor: showProfile ? "transparent" : "var(--color-border)",
+              color: showProfile ? "var(--color-brand)" : "var(--color-text-secondary)",
+            }}
           >
             {showProfile ? strings.chat.hideProfile : strings.chat.viewProfile}
           </button>
@@ -491,18 +511,20 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
               setShowMemoryInput((v) => !v);
               if (!showMemoryInput) setShowProfile(false);
             }}
-            className={`text-sm border px-3 py-1 rounded transition-colors ${
-              showMemoryInput
-                ? "bg-gray-100 border-gray-400 text-gray-900 font-medium"
-                : "hover:bg-gray-50 text-gray-700"
-            }`}
+            className={headerBtnClass(showMemoryInput)}
+            style={{
+              background: showMemoryInput ? "var(--color-brand-light)" : "transparent",
+              borderColor: showMemoryInput ? "transparent" : "var(--color-border)",
+              color: showMemoryInput ? "var(--color-brand)" : "var(--color-text-secondary)",
+            }}
           >
             {showMemoryInput ? strings.chat.hideMemories : strings.chat.memories}
           </button>
           <button
             type="button"
             onClick={onBack}
-            className="text-sm border px-3 py-1 rounded hover:bg-gray-50 text-gray-700"
+            className="text-xs font-medium px-3 py-1.5 rounded-xl border hover:bg-stone-50"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
           >
             {strings.chat.changePersona}
           </button>
@@ -518,28 +540,30 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       )}
 
       {showMemoryInput && (
-        <div className="p-4 border-b bg-gray-50">
+        <div className="px-6 py-4 border-b" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <MemoryInput user={user} persona={persona} />
         </div>
       )}
 
+      {/* Messages */}
       <div
         ref={listRef}
         onScroll={handleListScroll}
-        className="p-4 space-y-3 h-96 overflow-y-auto bg-gray-100"
+        className="flex-1 px-6 py-4 space-y-4 overflow-y-auto"
+        style={{ background: "var(--color-surface)" }}
       >
         {loadingMore && (
-          <p className="text-center text-gray-500 text-xs pt-2">
+          <p className="text-center text-xs pt-2" style={{ color: "var(--color-text-muted)" }}>
             {strings.chat.loadingEarlier}
           </p>
         )}
         {historyLoading && messages.length === 0 && !streamingContent && (
-          <p className="text-center text-gray-500 text-sm pt-12">
+          <p className="text-center text-sm pt-16" style={{ color: "var(--color-text-muted)" }}>
             {strings.chat.loadingConversation}
           </p>
         )}
         {!historyLoading && messages.length === 0 && !streamingContent && (
-          <p className="text-center text-gray-500 text-sm pt-12">
+          <p className="text-center text-sm pt-16 max-w-xs mx-auto leading-relaxed" style={{ color: "var(--color-text-muted)" }}>
             {strings.chat.emptyPrompt(persona.name)}
           </p>
         )}
@@ -571,24 +595,32 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
               role="status"
               aria-live="polite"
               aria-atomic="false"
-              className="max-w-[80%] px-3 py-2 rounded shadow-sm bg-white text-gray-900 border"
+              className="max-w-[80%] px-4 py-3 rounded-2xl rounded-bl-md text-sm leading-relaxed border shadow-sm"
+              style={{ background: "var(--color-surface-raised)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
             >
               {streamingContent}
-              <span className="inline-block w-1.5 h-4 ml-0.5 bg-gray-400 animate-pulse align-middle" />
+              <span className="inline-block w-1.5 h-4 ml-0.5 animate-pulse align-middle rounded-full" style={{ background: "var(--color-brand)" }} />
             </div>
           </div>
         )}
         {loading && !streamingContent && (
           <div className="flex justify-start">
-            <div className="bg-white text-gray-500 border px-3 py-2 rounded shadow-sm italic">
+            <div
+              className="px-4 py-3 rounded-2xl rounded-bl-md text-sm italic border shadow-sm"
+              style={{ background: "var(--color-surface-raised)", borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+            >
               {strings.chat.typing(persona.name)}
             </div>
           </div>
         )}
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="px-4 py-2 bg-red-50 border-t border-red-200 text-sm text-red-700">
+        <div
+          className="px-6 py-3 border-t text-sm"
+          style={{ background: "var(--color-danger-light)", borderColor: "rgba(220, 38, 38, 0.15)", color: "var(--color-danger)" }}
+        >
           {error}
         </div>
       )}

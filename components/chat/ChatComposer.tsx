@@ -8,11 +8,6 @@ type Props = {
   onCancel: () => void;
 };
 
-/**
- * The message composer (textarea + Send / Cancel) at the bottom of the
- * chat. Pure presentational — Enter without Shift sends, Shift+Enter
- * inserts a newline, matching the original behavior lifted to the parent.
- */
 export default function ChatComposer({
   input,
   loading,
@@ -21,7 +16,11 @@ export default function ChatComposer({
   onCancel,
 }: Props) {
   return (
-    <form onSubmit={onSend} className="p-4 border-t flex space-x-2">
+    <form
+      onSubmit={onSend}
+      className="p-4 border-t flex gap-3 items-end"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)" }}
+    >
       <label htmlFor="chat-message" className="sr-only">
         {strings.chat.composeAria}
       </label>
@@ -36,16 +35,22 @@ export default function ChatComposer({
           }
         }}
         placeholder={strings.chat.composePlaceholder}
-        rows={2}
+        rows={1}
         maxLength={4000}
-        className="flex-1 border p-2 rounded resize-none"
+        className="flex-1 border rounded-2xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+        style={{
+          borderColor: "var(--color-border)",
+          color: "var(--color-text-primary)",
+          background: "var(--color-surface)",
+        }}
         disabled={loading}
       />
       {loading ? (
         <button
           type="button"
           onClick={onCancel}
-          className="bg-gray-700 text-white px-4 rounded hover:bg-gray-800"
+          className="px-5 py-3 rounded-2xl text-sm font-semibold text-white shrink-0 active:scale-[0.97]"
+          style={{ background: "var(--color-text-secondary)" }}
         >
           {strings.chat.cancel}
         </button>
@@ -53,7 +58,10 @@ export default function ChatComposer({
         <button
           type="submit"
           disabled={!input.trim()}
-          className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700 disabled:bg-gray-400"
+          className="px-5 py-3 rounded-2xl text-sm font-semibold text-white shrink-0 disabled:opacity-40 active:scale-[0.97] shadow-lg shadow-indigo-200/40"
+          style={{
+            background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)",
+          }}
         >
           {strings.chat.send}
         </button>

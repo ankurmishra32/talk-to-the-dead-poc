@@ -278,100 +278,68 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
   // ---- Step content renderers ----------------------------------------
 
+  const inputCls = "w-full px-4 py-3 text-sm rounded-2xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-stone-400";
+  const inputStyle = { background: "var(--color-surface-raised)", color: "var(--color-text-primary)", borderColor: "var(--color-border)" };
+
   const renderStep0 = () => (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium mb-2" style={{ color: "var(--color-text-secondary)" }}>
           {strings.persona.identity.nameLabel}
         </label>
-        <input
-          type="text"
-          required
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={strings.persona.identity.namePlaceholder}
-          className="w-full border border-gray-300 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+        <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder={strings.persona.identity.namePlaceholder} className={inputCls} style={inputStyle} />
       </div>
-
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium mb-2" style={{ color: "var(--color-text-secondary)" }}>
           {strings.persona.identity.relationshipLabel}
         </label>
-        <select
-          value={relationship}
-          onChange={(e) => setRelationship(e.target.value)}
-          className="w-full border border-gray-300 p-2.5 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
+        <select value={relationship} onChange={(e) => setRelationship(e.target.value)} className={inputCls} style={inputStyle}>
           <option value="">{strings.persona.relationshipsEmptyOption}</option>
-          {strings.persona.relationships.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
+          {strings.persona.relationships.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
-
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium mb-2" style={{ color: "var(--color-text-secondary)" }}>
           {strings.persona.identity.theyCalledYouLabel}
         </label>
-        <input
-          type="text"
-          value={theyCalledYou}
-          onChange={(e) => setTheyCalledYou(e.target.value)}
-          placeholder={strings.persona.identity.theyCalledYouPlaceholder}
-          className="w-full border border-gray-300 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+        <input type="text" value={theyCalledYou} onChange={(e) => setTheyCalledYou(e.target.value)} placeholder={strings.persona.identity.theyCalledYouPlaceholder} className={inputCls} style={inputStyle} />
       </div>
     </div>
   );
 
+  const tagCls = (on: boolean) => `px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-150 ${on ? "shadow-sm" : "hover:border-stone-300"}`;
+  const tagStyle = (on: boolean) => ({
+    background: on ? "var(--color-brand)" : "var(--color-surface-raised)",
+    color: on ? "var(--color-text-on-brand)" : "var(--color-text-secondary)",
+    borderColor: on ? "var(--color-brand)" : "var(--color-border)",
+  });
+
   const renderStep1 = () => (
     <div className="space-y-6">
       <div>
-        <span className="block text-sm font-medium text-gray-700 mb-2">
+        <span className="block text-sm font-medium mb-3" style={{ color: "var(--color-text-secondary)" }}>
           {strings.persona.speech.languagesLabel}
         </span>
         <div className="flex flex-wrap gap-2">
           {strings.persona.languages.map((lang) => {
             const on = languages.includes(lang);
             return (
-              <button
-                type="button"
-                key={lang}
-                onClick={() => setLanguages(toggleFromArray(languages, lang))}
-                className={`px-4 py-1.5 rounded-full border text-sm transition-colors ${
-                  on
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                }`}
-              >
+              <button type="button" key={lang} onClick={() => setLanguages(toggleFromArray(languages, lang))} className={tagCls(on)} style={tagStyle(on)}>
                 {lang}
               </button>
             );
           })}
         </div>
       </div>
-
       <div>
-        <span className="block text-sm font-medium text-gray-700 mb-2">
+        <span className="block text-sm font-medium mb-3" style={{ color: "var(--color-text-secondary)" }}>
           {strings.persona.speech.mannerLabel}
         </span>
         <div className="flex flex-wrap gap-2">
           {strings.persona.speechStyles.map((style) => {
             const on = howTheySpoke.includes(style);
             return (
-              <button
-                type="button"
-                key={style}
-                onClick={() => setHowTheySpoke(toggleFromArray(howTheySpoke, style))}
-                className={`px-4 py-1.5 rounded-full border text-sm transition-colors ${
-                  on
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                }`}
-              >
+              <button type="button" key={style} onClick={() => setHowTheySpoke(toggleFromArray(howTheySpoke, style))} className={tagCls(on)} style={tagStyle(on)}>
                 {style}
               </button>
             );
@@ -383,168 +351,52 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
   const renderStep2 = () => (
     <div className="space-y-4">
-      <p className="text-xs text-gray-500">
+      <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
         {strings.persona.evidence.intro}
       </p>
-
       <div className="space-y-4">
         {speechExamples.map((ex, i) => (
-          <div
-            key={i}
-            className="p-4 border border-gray-200 rounded-lg bg-gray-50/75 space-y-3"
-          >
+          <div key={i} className="p-5 rounded-2xl border space-y-4" style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
                 {strings.persona.evidence.exampleHeading(i + 1)}
               </span>
               {speechExamples.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSpeechExamples(speechExamples.filter((_, idx) => idx !== i));
-                    setShowOptional((prev) => prev.filter((_, idx) => idx !== i));
-                  }}
-                  className="text-xs text-red-500 hover:text-red-700"
-                >
+                <button type="button" onClick={() => { setSpeechExamples(speechExamples.filter((_, idx) => idx !== i)); setShowOptional((prev) => prev.filter((_, idx) => idx !== i)); }} className="text-xs font-medium" style={{ color: "var(--color-danger)" }}>
                   {strings.persona.evidence.remove}
                 </button>
               )}
             </div>
-
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                {strings.persona.evidence.phraseLabel}
-              </label>
-              <input
-                type="text"
-                value={ex.phrase}
-                onChange={(e) => {
-                  const next = [...speechExamples];
-                  next[i] = { ...next[i], phrase: e.target.value };
-                  setSpeechExamples(next);
-                }}
-                placeholder={
-                  i === 0
-                    ? strings.persona.evidence.phrasePlaceholderPrimary
-                    : strings.persona.evidence.phrasePlaceholderSecondary
-                }
-                className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--color-text-secondary)" }}>{strings.persona.evidence.phraseLabel}</label>
+              <input type="text" value={ex.phrase} onChange={(e) => { const next = [...speechExamples]; next[i] = { ...next[i], phrase: e.target.value }; setSpeechExamples(next); }} placeholder={i === 0 ? strings.persona.evidence.phrasePlaceholderPrimary : strings.persona.evidence.phrasePlaceholderSecondary} className={inputCls} style={inputStyle} />
             </div>
-
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                {strings.persona.evidence.contextLabel}
-              </label>
-              <input
-                type="text"
-                value={ex.context}
-                onChange={(e) => {
-                  const next = [...speechExamples];
-                  next[i] = { ...next[i], context: e.target.value };
-                  setSpeechExamples(next);
-                }}
-                placeholder={
-                  i === 0
-                    ? strings.persona.evidence.contextPlaceholderPrimary
-                    : strings.persona.evidence.contextPlaceholderSecondary
-                }
-                className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--color-text-secondary)" }}>{strings.persona.evidence.contextLabel}</label>
+              <input type="text" value={ex.context} onChange={(e) => { const next = [...speechExamples]; next[i] = { ...next[i], context: e.target.value }; setSpeechExamples(next); }} placeholder={i === 0 ? strings.persona.evidence.contextPlaceholderPrimary : strings.persona.evidence.contextPlaceholderSecondary} className={inputCls} style={inputStyle} />
             </div>
-
-            {/* Optional details — collapsed by default */}
-            <button
-              type="button"
-              onClick={() => toggleOptional(i)}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-            >
+            <button type="button" onClick={() => toggleOptional(i)} className="text-xs font-medium" style={{ color: "var(--color-brand)" }}>
               {showOptional[i] ? strings.persona.evidence.lessDetails : strings.persona.evidence.moreDetails}
             </button>
-
             {showOptional[i] && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {strings.persona.evidence.meaningLabel}{" "}
-                    <span className="text-gray-400 font-normal">{strings.persona.evidence.optionalSuffix}</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={ex.meaning}
-                    onChange={(e) => {
-                      const next = [...speechExamples];
-                      next[i] = { ...next[i], meaning: e.target.value };
-                      setSpeechExamples(next);
-                    }}
-                    placeholder={
-                      i === 0
-                        ? strings.persona.evidence.meaningPlaceholderPrimary
-                        : strings.persona.evidence.meaningPlaceholderSecondary
-                    }
-                    className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--color-text-secondary)" }}>{strings.persona.evidence.meaningLabel} <span style={{ color: "var(--color-text-muted)" }} className="font-normal">{strings.persona.evidence.optionalSuffix}</span></label>
+                  <input type="text" value={ex.meaning} onChange={(e) => { const next = [...speechExamples]; next[i] = { ...next[i], meaning: e.target.value }; setSpeechExamples(next); }} placeholder={i === 0 ? strings.persona.evidence.meaningPlaceholderPrimary : strings.persona.evidence.meaningPlaceholderSecondary} className={inputCls} style={inputStyle} />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {strings.persona.evidence.toneLabel}{" "}
-                    <span className="text-gray-400 font-normal">{strings.persona.evidence.optionalSuffix}</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={ex.tone}
-                    onChange={(e) => {
-                      const next = [...speechExamples];
-                      next[i] = { ...next[i], tone: e.target.value };
-                      setSpeechExamples(next);
-                    }}
-                    placeholder={
-                      i === 0
-                        ? strings.persona.evidence.tonePlaceholderPrimary
-                        : strings.persona.evidence.tonePlaceholderSecondary
-                    }
-                    className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--color-text-secondary)" }}>{strings.persona.evidence.toneLabel} <span style={{ color: "var(--color-text-muted)" }} className="font-normal">{strings.persona.evidence.optionalSuffix}</span></label>
+                  <input type="text" value={ex.tone} onChange={(e) => { const next = [...speechExamples]; next[i] = { ...next[i], tone: e.target.value }; setSpeechExamples(next); }} placeholder={i === 0 ? strings.persona.evidence.tonePlaceholderPrimary : strings.persona.evidence.tonePlaceholderSecondary} className={inputCls} style={inputStyle} />
                 </div>
-
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {strings.persona.evidence.reactionLabel}{" "}
-                    <span className="text-gray-400 font-normal">{strings.persona.evidence.optionalSuffix}</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={ex.reaction}
-                    onChange={(e) => {
-                      const next = [...speechExamples];
-                      next[i] = { ...next[i], reaction: e.target.value };
-                      setSpeechExamples(next);
-                    }}
-                    placeholder={
-                      i === 0
-                        ? strings.persona.evidence.reactionPlaceholderPrimary
-                        : strings.persona.evidence.reactionPlaceholderSecondary
-                    }
-                    className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--color-text-secondary)" }}>{strings.persona.evidence.reactionLabel} <span style={{ color: "var(--color-text-muted)" }} className="font-normal">{strings.persona.evidence.optionalSuffix}</span></label>
+                  <input type="text" value={ex.reaction} onChange={(e) => { const next = [...speechExamples]; next[i] = { ...next[i], reaction: e.target.value }; setSpeechExamples(next); }} placeholder={i === 0 ? strings.persona.evidence.reactionPlaceholderPrimary : strings.persona.evidence.reactionPlaceholderSecondary} className={inputCls} style={inputStyle} />
                 </div>
               </div>
             )}
           </div>
         ))}
-
-        <button
-          type="button"
-          onClick={() => {
-            setSpeechExamples([
-              ...speechExamples,
-              { phrase: "", context: "", meaning: "", tone: "", reaction: "" },
-            ]);
-            setShowOptional((prev) => [...prev, false]);
-          }}
-          className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-        >
+        <button type="button" onClick={() => { setSpeechExamples([...speechExamples, { phrase: "", context: "", meaning: "", tone: "", reaction: "" }]); setShowOptional((prev) => [...prev, false]); }} className="text-sm font-medium" style={{ color: "var(--color-brand)" }}>
           {strings.persona.evidence.addAnother}
         </button>
       </div>
@@ -553,14 +405,15 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
   const renderStep3 = () => (
     <div className="space-y-3">
-      <p className="text-xs text-gray-500">
+      <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
         {strings.persona.memory.intro}
       </p>
       <textarea
         value={distinctiveStory}
         onChange={(e) => setDistinctiveStory(e.target.value)}
         placeholder={strings.persona.memory.textareaPlaceholder}
-        className="w-full border border-gray-300 p-2.5 rounded-lg h-28 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        className="w-full px-4 py-3 rounded-2xl h-32 text-sm border resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-stone-400"
+        style={{ background: "var(--color-surface-raised)", color: "var(--color-text-primary)", borderColor: "var(--color-border)" }}
       />
     </div>
   );
@@ -569,165 +422,120 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
 
   // ---- Render ------------------------------------------------------
 
+  const btnPrimary = "px-5 py-2.5 rounded-2xl text-sm font-semibold text-white shadow-lg shadow-indigo-200/40 active:scale-[0.97]";
+  const btnSecondary = "px-4 py-2.5 rounded-2xl text-sm font-medium border active:scale-[0.97]";
+
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow-lg space-y-6">
+    <div className="max-w-2xl mx-auto p-8 rounded-3xl space-y-8" style={{ background: "var(--color-surface-raised)", boxShadow: "0 8px 40px -8px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)" }}>
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">{strings.persona.heading}</h2>
-        <button
-          onClick={handleSignOut}
-          className="text-sm text-gray-500 hover:text-gray-700"
-        >
+        <h2 className="text-2xl font-bold" style={{ color: "var(--color-text-primary)" }}>{strings.persona.heading}</h2>
+        <button onClick={handleSignOut} className="text-sm font-medium" style={{ color: "var(--color-text-muted)" }}>
           {strings.common.signOut}
         </button>
       </div>
 
       {/* Existing personas list */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-600 mb-2">{strings.persona.yourPeople}</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--color-text-muted)" }}>{strings.persona.yourPeople}</h3>
         {listLoading ? (
-          <p className="text-gray-500 text-sm">{strings.persona.loadingList}</p>
+          <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>{strings.persona.loadingList}</p>
         ) : existing.length === 0 ? (
-          <p className="text-gray-500 text-sm">{strings.persona.emptyList}</p>
+          <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>{strings.persona.emptyList}</p>
         ) : (
-          <ul className="divide-y border border-gray-200 rounded-lg overflow-hidden">
+          <div className="space-y-2">
             {existing.map((p) => (
-              <li key={p.id} className="flex items-center justify-between p-3 bg-white hover:bg-gray-50">
+              <div key={p.id} className="flex items-center justify-between p-4 rounded-2xl border" style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
                 <div>
-                  <div className="font-medium text-gray-900">{p.name}</div>
-                  {p.relationship && (
-                    <div className="text-xs text-gray-500">{p.relationship}</div>
-                  )}
+                  <div className="font-semibold" style={{ color: "var(--color-text-primary)" }}>{p.name}</div>
+                  {p.relationship && <div className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>{p.relationship}</div>}
                 </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(p)}
-                    className="text-sm border border-gray-300 text-gray-700 px-2.5 py-1 rounded-lg hover:bg-gray-50"
-                  >
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => startEdit(p)} className={btnSecondary} style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
                     {strings.common.edit}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(p)}
-                    className="text-sm border border-red-200 text-red-600 px-2.5 py-1 rounded-lg hover:bg-red-50"
-                  >
+                  <button type="button" onClick={() => setPendingDelete(p)} className={btnSecondary} style={{ borderColor: "rgba(220,38,38,0.15)", color: "var(--color-danger)" }}>
                     {strings.common.delete}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(p)}
-                    className="bg-blue-600 text-white text-sm px-3 py-1 rounded-lg hover:bg-blue-700 font-medium"
-                  >
+                  <button type="button" onClick={() => onSelect(p)} className={btnPrimary} style={{ background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)" }}>
                     {strings.persona.talk}
                   </button>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
 
       {/* Form with steps */}
-      <section ref={formRef} className="pt-4 border-t">
+      <section ref={formRef} className="pt-6 border-t" style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-lg font-semibold" style={{ color: "var(--color-text-primary)" }}>
             {editingId ? (name ? strings.persona.editHeading(name) : strings.persona.editHeadingGeneric) : strings.persona.createNew}
           </h3>
           {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="text-xs text-gray-500 hover:text-gray-700"
-            >
+            <button type="button" onClick={resetForm} className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
               {strings.persona.cancelEdit}
             </button>
           )}
         </div>
-        <p className="mb-5 text-gray-500 text-sm">
+        <p className="mb-6 text-sm" style={{ color: "var(--color-text-muted)" }}>
           {editingId ? strings.persona.editSubtitle : strings.persona.createSubtitle}
         </p>
 
         {/* Progress indicator */}
-        <div className="flex items-center justify-between mb-6 px-2">
+        <div className="flex items-center justify-between mb-8 px-2">
           {STEP_LABELS.map((label, i) => (
             <div key={i} className="flex flex-col items-center flex-1">
               <div className="flex items-center w-full">
-                {i > 0 && (
-                  <div className={`flex-1 h-0.5 ${i <= currentStep ? "bg-blue-600" : "bg-gray-200"}`} />
-                )}
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
-                    i < currentStep
-                      ? "bg-blue-600 text-white"
-                      : i === currentStep
-                        ? "bg-blue-600 text-white ring-2 ring-blue-200"
-                        : "bg-gray-200 text-gray-500"
-                  }`}
-                >
+                {i > 0 && <div className="flex-1 h-0.5" style={{ background: i <= currentStep ? "var(--color-brand)" : "var(--color-border)" }} />}
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 transition-all duration-200"
+                  style={{
+                    background: i <= currentStep ? "var(--color-brand)" : "var(--color-surface)",
+                    color: i <= currentStep ? "var(--color-text-on-brand)" : "var(--color-text-muted)",
+                    border: i <= currentStep ? "none" : "1px solid var(--color-border)",
+                    boxShadow: i === currentStep ? "0 0 0 4px var(--color-brand-muted)" : "none",
+                  }}>
                   {i < currentStep ? "\u2713" : i + 1}
                 </div>
-                {i < STEP_LABELS.length - 1 && (
-                  <div className={`flex-1 h-0.5 ${i < currentStep ? "bg-blue-600" : "bg-gray-200"}`} />
-                )}
+                {i < STEP_LABELS.length - 1 && <div className="flex-1 h-0.5" style={{ background: i < currentStep ? "var(--color-brand)" : "var(--color-border)" }} />}
               </div>
-              <span className={`text-[10px] mt-1.5 text-center ${i === currentStep ? "text-blue-600 font-medium" : "text-gray-400"}`}>
+              <span className="text-[10px] mt-2 text-center font-medium" style={{ color: i === currentStep ? "var(--color-brand)" : "var(--color-text-muted)" }}>
                 {label}
               </span>
             </div>
           ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Step content */}
-          <div className="min-h-[200px]">
-            {stepRenderers[currentStep]()}
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="min-h-[200px]">{stepRenderers[currentStep]()}</div>
 
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="text-sm rounded-2xl px-4 py-3 border" style={{ color: "var(--color-danger)", background: "var(--color-danger-light)", borderColor: "rgba(220,38,38,0.15)" }}>
               {error}
             </div>
           )}
 
-          {/* Navigation */}
           <div className="flex items-center justify-between pt-2">
             <div>
               {currentStep > 0 && (
-                <button
-                  type="button"
-                  onClick={prevStep}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
-                >
+                <button type="button" onClick={prevStep} className={btnSecondary} style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
                   {strings.common.back}
                 </button>
               )}
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               {editingId && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  disabled={loading}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
-                >
+                <button type="button" onClick={resetForm} disabled={loading} className={btnSecondary} style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
                   {strings.common.cancel}
                 </button>
               )}
               {currentStep < 3 ? (
-                <button
-                  type="button"
-                  onClick={nextStep}
-                  className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors"
-                >
+                <button type="button" onClick={nextStep} className={btnPrimary} style={{ background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)" }}>
                   {strings.common.next}
                 </button>
               ) : (
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium text-sm transition-colors"
-                >
+                <button type="submit" disabled={loading} className={`${btnPrimary} disabled:opacity-40`} style={{ background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)" }}>
                   {loading ? strings.persona.saving : editingId ? strings.persona.saveChangesButton : strings.persona.rememberThemButton}
                 </button>
               )}
@@ -740,10 +548,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
         open={pendingDelete !== null}
         title={pendingDelete ? strings.persona.confirmDeleteTitle(pendingDelete.name) : ""}
         message={strings.persona.confirmDeleteMessage}
-        onConfirm={() => {
-          if (pendingDelete) handleDelete(pendingDelete);
-          setPendingDelete(null);
-        }}
+        onConfirm={() => { if (pendingDelete) handleDelete(pendingDelete); setPendingDelete(null); }}
         onCancel={() => setPendingDelete(null)}
       />
     </div>

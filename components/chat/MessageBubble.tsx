@@ -15,12 +15,6 @@ type Props = {
   onDelete: () => void;
 };
 
-/**
- * A single message row in the chat, covering both the edit mode (inline
- * textarea) and the display mode (bubble + hover-revealed Edit/Delete
- * actions). Pure presentational — all state and mutation handlers are
- * lifted to the parent.
- */
 export default function MessageBubble({
   m,
   index,
@@ -34,25 +28,31 @@ export default function MessageBubble({
   onEdit,
   onDelete,
 }: Props) {
+  const isUser = m.role === "user";
+
   return (
     <div
       key={m.id ?? `local-${index}`}
-      className={`group flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+      className={`group flex ${isUser ? "justify-end" : "justify-start"}`}
     >
       {isEditing ? (
-        <div className="max-w-[80%] w-full bg-white border rounded shadow-sm p-2 space-y-2">
+        <div className="max-w-[80%] w-full rounded-2xl border p-3 space-y-3"
+          style={{ background: "var(--color-surface-raised)", borderColor: "var(--color-border)" }}
+        >
           <textarea
             value={editingDraft}
             onChange={(e) => onDraftChange(e.target.value)}
             rows={3}
-            className="w-full border p-2 rounded resize-none"
+            className="w-full border rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
             aria-label={strings.messageBubble.editAria}
           />
-          <div className="flex justify-end space-x-2">
+          <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={onCancelEdit}
-              className="text-sm border px-3 py-1 rounded hover:bg-gray-50"
+              className="px-4 py-1.5 rounded-xl text-sm font-medium border hover:bg-stone-50"
+              style={{ color: "var(--color-text-secondary)", borderColor: "var(--color-border)" }}
             >
               {strings.common.cancel}
             </button>
@@ -60,7 +60,8 @@ export default function MessageBubble({
               type="button"
               onClick={onSaveEdit}
               disabled={!editingDraft.trim()}
-              className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:bg-gray-400"
+              className="px-4 py-1.5 rounded-xl text-sm font-medium text-white disabled:opacity-40"
+              style={{ background: "var(--color-brand)" }}
             >
               {strings.common.save}
             </button>
@@ -69,24 +70,30 @@ export default function MessageBubble({
       ) : (
         <div className="relative max-w-[80%]">
           <div
-            className={`px-3 py-2 rounded shadow-sm ${
-              m.role === "user"
-                ? "bg-blue-600 text-white"
-                : "bg-white text-gray-900 border"
+            className={`px-4 py-3 text-sm leading-relaxed ${
+              isUser
+                ? "text-white rounded-2xl rounded-br-md shadow-md"
+                : "rounded-2xl rounded-bl-md border shadow-sm"
             }`}
+            style={
+              isUser
+                ? { background: "linear-gradient(135deg, var(--color-brand) 0%, #7c3aed 100%)" }
+                : { background: "var(--color-surface-raised)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }
+            }
           >
             {m.content}
           </div>
           {(canEdit || canDelete) && (
             <div
-              className={`absolute -top-2 ${m.role === "user" ? "left-0" : "right-0"} flex space-x-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity`}
+              className={`absolute -top-3 ${isUser ? "left-0" : "right-0"} flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150`}
             >
               {canEdit && (
                 <button
                   type="button"
                   onClick={onEdit}
                   aria-label={strings.messageBubble.editAria}
-                  className="bg-white border text-gray-700 text-xs px-2 py-0.5 rounded shadow-sm hover:bg-gray-50 focus:opacity-100"
+                  className="text-xs px-2.5 py-1 rounded-lg shadow-sm border font-medium hover:bg-stone-50"
+                  style={{ background: "var(--color-surface-raised)", borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
                 >
                   {strings.common.edit}
                 </button>
@@ -96,7 +103,8 @@ export default function MessageBubble({
                   type="button"
                   onClick={onDelete}
                   aria-label={strings.messageBubble.deleteAria}
-                  className="bg-white border text-red-600 text-xs px-2 py-0.5 rounded shadow-sm hover:bg-red-50 focus:opacity-100"
+                  className="text-xs px-2.5 py-1 rounded-lg shadow-sm border font-medium"
+                  style={{ background: "var(--color-surface-raised)", borderColor: "rgba(220, 38, 38, 0.15)", color: "var(--color-danger)" }}
                 >
                   {strings.common.delete}
                 </button>

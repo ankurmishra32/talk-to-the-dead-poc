@@ -11,17 +11,6 @@ type Props = {
   onCancel: () => void;
 };
 
-/**
- * A small accessible confirmation dialog, replacing the native window.confirm.
- *
- * Accessibility:
- * - role="dialog" + aria-modal + labelled by its title.
- * - Focus is moved to the dialog on open and restored to the trigger on close.
- * - Escape and the backdrop cancel; the destructive action is the explicit
- *   confirm button (so Enter alone can't fire a destructive delete).
- *
- * Controlled: render it always, pass `open` true only when you want it shown.
- */
 export default function Confirm({
   open,
   title,
@@ -50,12 +39,11 @@ export default function Confirm({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
+      {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0"
+        style={{ background: "rgba(28, 25, 23, 0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
         onClick={onCancel}
         aria-hidden="true"
       />
@@ -63,17 +51,19 @@ export default function Confirm({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
-        className="relative w-full max-w-sm bg-white rounded shadow-lg p-5 space-y-4"
+        className="relative w-full max-w-sm p-6 rounded-3xl shadow-2xl space-y-5"
+        style={{ background: "var(--color-surface-raised)" }}
       >
-        <h2 id="confirm-title" className="text-lg font-semibold text-gray-900">
+        <h2 id="confirm-title" className="text-lg font-semibold" style={{ color: "var(--color-text-primary)" }}>
           {title}
         </h2>
-        <p className="text-sm text-gray-600">{message}</p>
-        <div className="flex justify-end space-x-2">
+        <p className="text-sm leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>{message}</p>
+        <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
+            className="px-5 py-2.5 rounded-2xl text-sm font-medium border active:scale-[0.97]"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
           >
             {cancelLabel}
           </button>
@@ -81,7 +71,8 @@ export default function Confirm({
             type="button"
             ref={confirmRef}
             onClick={onConfirm}
-            className="px-4 py-1.5 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+            className="px-5 py-2.5 rounded-2xl text-sm font-semibold text-white active:scale-[0.97] shadow-lg"
+            style={{ background: "var(--color-danger)" }}
           >
             {confirmLabel}
           </button>

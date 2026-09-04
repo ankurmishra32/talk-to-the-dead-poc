@@ -1,1 +1,114 @@
 @import "tailwindcss";
+
+/*
+ * Design system – "Remember" warm-intimacy theme.
+ * Tailwind v4 CSS-first config: no tailwind.config.ts.
+ */
+
+@theme {
+  /* Warm surface palette */
+  --color-surface: #faf9f7;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: rgba(255, 255, 255, 0.80);
+
+  /* Brand accent – warm indigo */
+  --color-brand: #6366f1;
+  --color-brand-hover: #4f46e5;
+  --color-brand-light: #eef2ff;
+  --color-brand-muted: rgba(99, 102, 241, 0.08);
+
+  /* Warm text scale */
+  --color-text-primary: #1c1917;
+  --color-text-secondary: #57534e;
+  --color-text-muted: #a8a29e;
+  --color-text-on-brand: #ffffff;
+
+  /* Warm border */
+  --color-border: #e7e5e4;
+  --color-border-focus: #a5b4fc;
+
+  /* Semantic */
+  --color-danger: #dc2626;
+  --color-danger-light: #fef2f2;
+  --color-success: #16a34a;
+  --color-success-light: #f0fdf4;
+
+  /* Spacing scale extras */
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+}
+
+/* ---- Base resets & defaults ---- */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+/* ---- Focus ring – consistent, warm ---- */
+
+*:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* ---- Smooth transitions for interactive elements ---- */
+
+button,
+a,
+input,
+textarea,
+select {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---- Scrollbar (subtle, matches warm palette) ---- */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d6d3d1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a29e;
+}
+
+/* ---- Selection color ---- */
+
+::selection {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: inherit;
+}
+
+/* ---- Reduced motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

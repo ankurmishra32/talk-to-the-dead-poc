@@ -24,22 +24,22 @@ export default function Dashboard() {
 
   if (loading || !user) {
     return (
-      <div className="p-6">
-        <p>{strings.dashboard.loading}</p>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--color-surface)" }}>
+        <p style={{ color: "var(--color-text-muted)" }}>{strings.dashboard.loading}</p>
       </div>
     );
   }
 
   if (!persona) {
     return (
-      <div className="p-6">
+      <div className="min-h-screen py-8" style={{ background: "var(--color-surface)" }}>
         <PersonaSelection onSelect={setPersona} />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
+    <div className="min-h-screen py-6 px-4" style={{ background: "var(--color-surface)" }}>
       <Chat
         persona={persona}
         user={toChatUser(user)}
