@@ -85,8 +85,10 @@ export default function Home() {
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 required
+                autoComplete="email webauthn"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={strings.auth.emailPlaceholder}
@@ -117,8 +119,10 @@ export default function Home() {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 required
+                autoComplete={isLogin ? "current-password webauthn" : "new-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={strings.auth.passwordPlaceholder}
