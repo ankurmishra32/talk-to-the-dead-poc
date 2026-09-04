@@ -10,10 +10,11 @@
 // The route pipes this stream directly to the client. The chat route
 // does not need to know which upstream provider produced it.
 
-export type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+import type { ChatMessage as ClientChatMessage } from "../types";
+
+// The LLM wire contract is the shared ChatMessage minus the client-side
+// `id` reconciliation field (request messages never carry a document id).
+export type ChatMessage = Omit<ClientChatMessage, "id">;
 
 export type ChatRequest = {
   system: string;

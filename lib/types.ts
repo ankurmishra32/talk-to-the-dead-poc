@@ -66,11 +66,12 @@ export type PersonaReference = {
   name: string;
 };
 
-/** A list item persona with nullable optional fields (client-facing). */
-export type PersonaItem = {
-  id: string;
-  name: string;
-  ownerId: string | null;
+/**
+ * The shared persona detail fields — used by both the persona list item
+ * and the full profile shown in the chat header. Nullable optionals mirror
+ * values read from Firestore where a field may simply be absent.
+ */
+export type PersonaDetails = {
   relationship?: string | null;
   theyCalledYou?: string | null;
   languages?: string[];
@@ -80,18 +81,18 @@ export type PersonaItem = {
   distinctiveStory?: string | null;
 };
 
+/** A list item persona with owner info (client-facing). */
+export type PersonaItem = {
+  id: string;
+  name: string;
+  ownerId: string | null;
+} & PersonaDetails;
+
 /** The full persona profile shown in the chat header ("View profile"). */
 export type FullPersonaProfile = {
   id: string;
   name: string;
-  relationship?: string | null;
-  theyCalledYou?: string | null;
-  languages?: string[];
-  howTheySpoke?: string[];
-  speechExamples?: SpeechExample[];
-  oftenSaid?: string[];
-  distinctiveStory?: string | null;
-};
+} & PersonaDetails;
 
 /** The raw Firestore document shape for a persona (as written/read). */
 export type PersonaFirestoreDoc = {

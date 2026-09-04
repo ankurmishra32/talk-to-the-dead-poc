@@ -28,8 +28,8 @@ import type {
   ChatMessage,
   FullPersonaProfile,
   MinimalUser,
+  PersonaFirestoreDoc,
   PersonaReference,
-  SpeechExample,
 } from "../lib/types";
 import { createLogger } from "../lib/logger";
 import MessageBubble from "./chat/MessageBubble";
@@ -104,16 +104,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         const snap = await getDoc(doc(db, "personas", persona.id));
         if (cancelled) return;
         if (snap.exists()) {
-          const data = snap.data() as {
-            name?: string;
-            relationship?: string;
-            theyCalledYou?: string;
-            languages?: string[];
-            howTheySpoke?: string[];
-            speechExamples?: SpeechExample[];
-            oftenSaid?: string[];
-            distinctiveStory?: string;
-          };
+          const data = snap.data() as PersonaFirestoreDoc;
           setProfile({
             id: snap.id,
             name: data.name ?? persona.name,
