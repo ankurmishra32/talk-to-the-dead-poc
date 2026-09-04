@@ -1,6 +1,6 @@
 import { initializeApp, type FirebaseOptions } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
 
 // Client-side Firebase configuration, loaded from NEXT_PUBLIC_* env vars.
 //
@@ -24,7 +24,15 @@ const firebaseConfig: FirebaseOptions = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
-const app = initializeApp(firebaseConfig);
+// During SSR / prerender (typeof window === "undefined") or when the env var
+// is not configured (CI builds without .env.local), Firebase is not
+// initialized.  Consuming code only accesses auth/db inside useEffect or
+// event handlers — never on the server — so null is safe here.  The type
+// assertion keeps the export contract unchanged so no downstream files need
+// to be updated.
+const shouldInit =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const app = shouldInit ? initializeApp(firebaseConfig) : null;
 
 // Use a named database ("talk-to-the-dead") instead of the default "(default)".
 // Must match the database the server-side wrapper in lib/firestore.ts queries.
@@ -35,5 +43,5 @@ const DATABASE_ID = "talk-to-the-dead";
 // lib/auth/firebase.client.ts) and by the Firestore-touching components.
 // The server bundle never reaches this file because lib/auth/server.ts
 // only imports the REST-based server half.
-export const auth = getAuth(app);
-export const db = getFirestore(app, DATABASE_ID);
+export const auth = (app ? getAuth(app) : null) as Auth;
+export const db = (app ? getFirestore(app, DATABASE_ID) : null) as Firestore;
