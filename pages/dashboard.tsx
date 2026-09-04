@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../lib/auth/useAuth";
 import type { AuthUser } from "../lib/auth";
-import { getUserProfile } from "../lib/users";
 import PersonaSelection from "../components/PersonaSelection";
 import Chat from "../components/Chat";
 import { strings } from "../lib/strings";
@@ -21,13 +20,6 @@ export default function Dashboard() {
     if (!loading && !user) {
       router.push("/");
     }
-  }, [user, loading, router]);
-
-  useEffect(() => {
-    if (loading || !user) return;
-    getUserProfile(user.uid).then((profile) => {
-      if (!profile) router.replace("/signup");
-    });
   }, [user, loading, router]);
 
   if (loading || !user) {
