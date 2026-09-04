@@ -134,11 +134,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       (err) => {
         if (cancelled) return;
         logger.error("Conversation subscription failed", err);
-        setError(
-          err instanceof Error
-            ? err.message
-            : strings.chat.syncFailed
-        );
+        setError(strings.chat.syncFailed);
         setHistoryLoading(false);
       }
     );
@@ -198,9 +194,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     } catch (err) {
       pendingScrollAdjustRef.current = null;
       logger.error("Failed to load older messages", err);
-      setError(
-        err instanceof Error ? err.message : strings.chat.loadOlderFailed
-      );
+      setError(strings.chat.loadOlderFailed);
     } finally {
       setLoadingMore(false);
     }
@@ -252,9 +246,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         prev.map((m) => (m.id === id ? original : m))
       );
       dirtyIdsRef.current.delete(id);
-      setError(
-        err instanceof Error ? err.message : strings.chat.saveEditFailed
-      );
+      setError(strings.chat.saveEditFailed);
     }
   };
 
@@ -285,9 +277,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         return restored;
       });
       dirtyIdsRef.current.delete(id);
-      setError(
-        err instanceof Error ? err.message : strings.chat.deleteMessageFailed
-      );
+      setError(strings.chat.deleteMessageFailed);
     }
   };
 
@@ -363,7 +353,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         }
         return;
       }
-      setError(err instanceof Error ? err.message : strings.chat.networkError);
+      setError(strings.chat.networkError);
       sendingRef.current = false;
       return;
     }
@@ -446,7 +436,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         return;
       }
       setLoading(false);
-      setError(err instanceof Error ? err.message : strings.chat.streamInterrupted);
+      setError(strings.chat.streamInterrupted);
       setStreamingContent("");
       return;
     }

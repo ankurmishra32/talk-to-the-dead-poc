@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../lib/auth/useAuth";
+import { createLogger } from "../lib/logger";
 import { strings } from "../lib/strings";
+
+const logger = createLogger("Login");
 
 export default function Home() {
   const [email, setEmail] = useState("");
@@ -17,8 +20,8 @@ export default function Home() {
       await signIn(email, password);
       router.push("/dashboard");
     } catch (err) {
-      const message = err instanceof Error ? err.message : strings.auth.genericError;
-      setError(message);
+      logger.error("Sign in failed", err);
+      setError(strings.auth.genericError);
     }
   };
 

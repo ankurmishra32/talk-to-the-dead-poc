@@ -170,7 +170,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       if (editingId === p.id) resetForm();
     } catch (err) {
       logger.error("Error deleting persona", err);
-      setError(err instanceof Error ? err.message : "Failed to delete persona.");
+      setError(strings.persona.deleteFailed);
     }
   };
 
@@ -251,7 +251,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       }
     } catch (err) {
       logger.error("Error saving persona", err);
-      setError(err instanceof Error ? err.message : "Failed to save persona.");
+      setError(strings.persona.saveFailed);
     } finally {
       setLoading(false);
     }

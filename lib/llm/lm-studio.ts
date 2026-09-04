@@ -6,6 +6,16 @@
 
 import type { ChatRequest, LlmAdapter, LlmStream } from "./types";
 import { sseDelta, sseDone, sseError } from "./sse";
+import { createLogger } from "../logger";
+
+const logger = createLogger("llm/lm-studio");
+
+const USER_MSG = {
+  unreachable: "Couldn't reach the AI service. Please check the connection and try again.",
+  badResponse: "The AI service returned an error. Please try again.",
+  shortReply: "The reply was cut off. Please try again.",
+  streamError: "Something went wrong mid-reply. Please try again.",
+};
 
 function getBaseUrl(): string {
   return (process.env.LM_STUDIO_BASE_URL || "http://localhost:1234/v1").replace(/\/$/, "");
@@ -48,9 +58,10 @@ export const lmStudioAdapter: LlmAdapter = {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown network error";
+      logger.error(`Could not reach LM Studio: ${message}`);
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(sseError(`Could not reach LM Studio: ${message}`));
+          controller.enqueue(sseError(USER_MSG.unreachable));
           controller.close();
         },
       });
@@ -64,11 +75,10 @@ export const lmStudioAdapter: LlmAdapter = {
       } catch {
         // Ignore an unreadable error body.
       }
+      logger.error(`LM Studio responded ${response.status}: ${detail || "(no body)"}`);
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(
-            sseError(`LM Studio responded ${response.status}: ${detail || "(no body)"}`)
-          );
+          controller.enqueue(sseError(USER_MSG.badResponse));
           controller.close();
         },
       });
@@ -96,7 +106,7 @@ export const lmStudioAdapter: LlmAdapter = {
             const { value, done } = await reader.read();
             if (done) {
               try {
-                controller.enqueue(sseError("LM Studio ended before completing the reply."));
+                controller.enqueue(sseError(USER_MSG.shortReply));
                 controller.close();
               } catch {
                 // The client may already be disconnected.
@@ -136,7 +146,8 @@ export const lmStudioAdapter: LlmAdapter = {
                     typeof chunk.error === "string"
                       ? chunk.error
                       : chunk.error.message || "LM Studio stream error.";
-                  controller.enqueue(sseError(error));
+                  logger.error(`LM Studio stream error: ${error}`);
+                  controller.enqueue(sseError(USER_MSG.streamError));
                   controller.close();
                   resolveFinal(totalReply);
                   resolveCompleted(false);
@@ -156,8 +167,9 @@ export const lmStudioAdapter: LlmAdapter = {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : "Stream interrupted";
+          logger.error(`LM Studio stream interrupted: ${message}`);
           try {
-            controller.enqueue(sseError(message));
+            controller.enqueue(sseError(USER_MSG.streamError));
             controller.close();
           } catch {
             // The client may already be disconnected.

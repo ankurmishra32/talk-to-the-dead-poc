@@ -91,7 +91,7 @@ export default function MemoryInput({
       setTimeout(() => setSavedSuccess(false), 2000);
     } catch (err) {
       logger.error("Failed to save memory", err);
-      setError(err instanceof Error ? err.message : strings.memoryInput.saveFailed);
+      setError(strings.memoryInput.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -111,7 +111,7 @@ export default function MemoryInput({
       setEditingText("");
     } catch (err) {
       logger.error("Failed to update memory", err);
-      setError(err instanceof Error ? err.message : strings.memoryInput.updateFailed);
+      setError(strings.memoryInput.updateFailed);
     }
   };
 
@@ -123,7 +123,7 @@ export default function MemoryInput({
       if (editingId === id) { setEditingId(null); setEditingText(""); }
     } catch (err) {
       logger.error("Failed to delete memory", err);
-      setError(err instanceof Error ? err.message : strings.memoryInput.deleteFailed);
+      setError(strings.memoryInput.deleteFailed);
     }
   };
 

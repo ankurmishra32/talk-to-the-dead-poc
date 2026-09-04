@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { deleteAccount } from "../lib/account";
+import { createLogger } from "../lib/logger";
 import { strings } from "../lib/strings";
+
+const logger = createLogger("DeleteAccountModal");
 
 type Props = {
   open: boolean;
@@ -49,7 +52,8 @@ export default function DeleteAccountModal({ open, user, onClose, onDeleted }: P
       } else if (err instanceof Error && err.message.includes("auth/requires-recent-login")) {
         setError(strings.account.authError);
       } else {
-        setError(err instanceof Error ? err.message : strings.account.authError);
+        logger.error("Account deletion failed", err);
+        setError(strings.account.authError);
       }
     }
   };

@@ -72,8 +72,9 @@ export default async function handler(
   try {
     const user = await authAdapter.verifyAccessToken(authorization);
     uid = user.uid;
-  } catch {
-    return res.status(401).json({ error: "Unauthenticated." });
+  } catch (err) {
+    logger.error("Auth token verification failed", err);
+    return res.status(401).json({ error: "Please sign in again." });
   }
 
   // Rate limit (per UID). Happens after auth so the bucket is keyed
@@ -83,7 +84,7 @@ export default async function handler(
   const rate = await checkRequestRate(uid);
   if (!rate.allowed) {
     res.setHeader("Retry-After", String(rate.retryAfterSec));
-    return res.status(429).json({ error: "Too many requests. Try again shortly." });
+    return res.status(429).json({ error: "Too many requests. Please wait a moment and try again." });
   }
 
   let persona: PersonaDoc;
@@ -97,8 +98,8 @@ export default async function handler(
     persona = found;
     memories = await listMemoriesForPersona(body.personaId, uid, authorization, 20);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown Firestore error";
-    return res.status(502).json({ error: `Firestore: ${message}` });
+    logger.error("Firestore read failed", err);
+    return res.status(502).json({ error: "Something went wrong on our end. Please try again." });
   }
 
   const system = buildSystemPrompt(persona, memories);
@@ -117,7 +118,7 @@ export default async function handler(
   // we return 503 — it's not the user's fault, so no Retry-After.
   const slot = await acquireStreamSlot(uid);
   if (!slot.acquired) {
-    return res.status(503).json({ error: "Server is busy. Try again shortly." });
+    return res.status(503).json({ error: "Server is busy. Please wait a moment and try again." });
   }
 
   let upstream: ReadableStream<Uint8Array>;
@@ -130,8 +131,8 @@ export default async function handler(
     completed = llmStream.completed;
   } catch (err) {
     await releaseStreamSlot(uid);
-    const message = err instanceof Error ? err.message : "Unknown network error";
-    return res.status(502).json({ error: `Could not reach LLM provider: ${message}` });
+    logger.error("Could not reach LLM provider", err);
+    return res.status(502).json({ error: "Something went wrong on our end. Please try again." });
   }
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -161,9 +162,9 @@ export default async function handler(
       }
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Stream interrupted";
+    logger.error("Stream interrupted", err);
     try {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
+      res.write(`event: error\ndata: ${JSON.stringify({ error: "The reply was cut off. Please try again." })}\n\n`);
     } catch {
       // Client already disconnected.
     }

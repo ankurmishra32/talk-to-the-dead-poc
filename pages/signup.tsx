@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../lib/auth/useAuth";
 import { createUserProfile, getUserProfile } from "../lib/users";
+import { createLogger } from "../lib/logger";
 import { strings } from "../lib/strings";
+
+const logger = createLogger("Signup");
 
 const STEP_LABELS = [strings.auth.signup.stepAccount, strings.auth.signup.stepProfile];
 
@@ -58,7 +61,7 @@ export default function SignupPage() {
       return;
     }
     if (password.length < 8) {
-      setError(strings.auth.passwordPlaceholder);
+      setError(strings.auth.passwordTooShort);
       return;
     }
 
@@ -68,7 +71,8 @@ export default function SignupPage() {
       setUid(authUser.uid);
       nextStep();
     } catch (err) {
-      setError(err instanceof Error ? err.message : strings.auth.genericError);
+      logger.error("Sign up failed", err);
+      setError(strings.auth.genericError);
     } finally {
       setLoading(false);
     }
@@ -89,7 +93,8 @@ export default function SignupPage() {
       });
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : strings.auth.genericError);
+      logger.error("Profile save failed", err);
+      setError(strings.auth.genericError);
     } finally {
       setLoading(false);
     }

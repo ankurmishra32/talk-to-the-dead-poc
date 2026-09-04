@@ -11,6 +11,16 @@
 
 import type { LlmAdapter, ChatRequest, LlmStream } from "./types";
 import { sseDelta, sseDone, sseError } from "./sse";
+import { createLogger } from "../logger";
+
+const logger = createLogger("llm/ollama");
+
+const USER_MSG = {
+  unreachable: "Couldn't reach the AI service. Please check the connection and try again.",
+  badResponse: "The AI service returned an error. Please try again.",
+  shortReply: "The reply was cut off. Please try again.",
+  streamError: "Something went wrong mid-reply. Please try again.",
+};
 
 function getOllamaHost(): string {
   return process.env.OLLAMA_HOST || "http://localhost:11434";
@@ -38,9 +48,10 @@ export const ollamaAdapter: LlmAdapter = {
       // Network-level failure to reach Ollama. Build a stream that
       // emits an error event and resolves finalReply to "".
       const message = err instanceof Error ? err.message : "Unknown network error";
+      logger.error(`Could not reach Ollama: ${message}`);
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(sseError(`Could not reach Ollama: ${message}`));
+          controller.enqueue(sseError(USER_MSG.unreachable));
           controller.close();
         },
       });
@@ -58,9 +69,10 @@ export const ollamaAdapter: LlmAdapter = {
       } catch {
         // ignore
       }
+      logger.error(`Ollama responded ${ollamaRes.status}: ${detail || "(no body)"}`);
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(sseError(`Ollama responded ${ollamaRes.status}: ${detail || "(no body)"}`));
+          controller.enqueue(sseError(USER_MSG.badResponse));
           controller.close();
         },
       });
@@ -98,7 +110,7 @@ export const ollamaAdapter: LlmAdapter = {
               // A normal Ollama response ends with a done record. Without
               // one, the accumulated text may be a truncated reply.
               try {
-                controller.enqueue(sseError("Ollama ended before completing the reply."));
+                controller.enqueue(sseError(USER_MSG.shortReply));
                 controller.close();
               } catch {
                 // already closed
@@ -120,8 +132,9 @@ export const ollamaAdapter: LlmAdapter = {
                   error?: string;
                 };
                 if (parsed.error) {
+                  logger.error(`Ollama error: ${parsed.error}`);
                   try {
-                    controller.enqueue(sseError(parsed.error));
+                    controller.enqueue(sseError(USER_MSG.streamError));
                     controller.close();
                   } catch {
                     // already closed
@@ -158,8 +171,9 @@ export const ollamaAdapter: LlmAdapter = {
           // drop). Emit error event if we can; otherwise the route
           // will see the stream close and surface a generic message.
           const message = err instanceof Error ? err.message : "Stream interrupted";
+          logger.error(`Ollama stream interrupted: ${message}`);
           try {
-            controller.enqueue(sseError(message));
+            controller.enqueue(sseError(USER_MSG.streamError));
             controller.close();
           } catch {
             // Already closed.
