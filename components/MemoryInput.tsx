@@ -45,11 +45,15 @@ export default function MemoryInput({
   const [editingText, setEditingText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // Separate from `error` so the list doesn't claim "No memories saved yet"
+  // when it simply failed to load.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setListLoading(true);
     setError(null);
+    setLoadFailed(false);
 
     async function loadMemories() {
       try {
@@ -64,7 +68,10 @@ export default function MemoryInput({
         });
         setMemories(items);
       } catch (err) {
-        if (!cancelled) logger.error("Failed to load memories", err);
+        if (!cancelled) {
+          logger.error("Failed to load memories", err);
+          setLoadFailed(true);
+        }
       } finally {
         if (!cancelled) setListLoading(false);
       }
@@ -171,6 +178,8 @@ export default function MemoryInput({
 
         {listLoading ? (
           <p className="text-xs italic py-2" style={{ color: "var(--color-text-muted)" }}>{strings.memoryInput.loadingList}</p>
+        ) : loadFailed && memories.length === 0 ? (
+          <p className="text-xs py-2" role="alert" style={{ color: "var(--color-danger)" }}>{strings.memoryInput.loadFailed}</p>
         ) : memories.length === 0 ? (
           <p className="text-xs italic py-2" style={{ color: "var(--color-text-muted)" }}>{strings.memoryInput.emptyList}</p>
         ) : (

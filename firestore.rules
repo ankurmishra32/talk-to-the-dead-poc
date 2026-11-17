@@ -71,52 +71,34 @@ service cloud.firestore {
     // /conversations/{personaId}/messages/{msgId}. Same ownership
     // boundary as personas and memories.
     //
-    // Ownership is enforced via an `ownerUid` field denormalized onto
-    // every message (set at write time by the client and the server
-    // route). We deliberately do NOT call get() against the parent
-    // persona document here: Firestore caps rule-evaluator get() calls
-    // at 10 per query, and this rule runs per matched document on a
-    // subcollection query (Chat.tsx reads the latest 40 messages), so a
-    // get() here would make large reads fail. The `personaId` is also
-    // denormalized so the create/update rules can assert the message is
-    // written under the intended persona path.
+    // Ownership is the `userId` field on every message (the same field
+    // personas and memories use), set at write time by the client (user
+    // turns) and by /api/chat (assistant replies, written with the user's
+    // own ID token). We deliberately do NOT call get() against the parent
+    // persona document here: Firestore caps rule-evaluator get() calls at
+    // 10 per query, and this rule runs per matched document on a
+    // subcollection query, so a get() would make larger reads fail. The
+    // `personaId` is denormalized so create/update can assert the message
+    // is written under the intended persona path. The server route also
+    // re-checks persona ownership before saving an assistant reply.
     //
-    // Because `ownerUid` is written by the same code that sets `userId`
-    // (and is asserted equal to the requester's UID), it is as trustworthy
-    // as `userId` for ownership. The server route additionally re-checks
-    // persona ownership before persisting an assistant reply.
-    //
-    // Reads accept either `ownerUid` or the legacy `userId` so that
-    // messages written before ownerUid existed remain readable after the
-    // rules deploy (both fields carry the same owner uid; the rule never
-    // calls get(), avoiding the 10-read-per-query cap on subcollection
-    // reads).
+    // Queries must filter on userId == auth.uid (Chat.tsx and
+    // lib/account.ts do) so Firestore can prove the read rule holds.
     match /conversations/{personaId}/messages/{msgId} {
-      allow read: if isSignedIn()
-                   && (resource.data.ownerUid == request.auth.uid
-                       || resource.data.userId == request.auth.uid);
+      allow read, delete: if isSignedIn()
+                           && resource.data.userId == request.auth.uid;
 
       allow create: if isSignedIn()
-                    && request.resource.data.ownerUid == request.auth.uid
                     && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.ownerUid == request.resource.data.userId
                     && request.resource.data.personaId == personaId;
 
+      // Owner can't change (both sides must be the requester) and the
+      // message can't be moved to another persona.
       allow update: if isSignedIn()
-                    && resource.data.ownerUid == request.auth.uid
-                    && request.resource.data.ownerUid == request.auth.uid
+                    && resource.data.userId == request.auth.uid
                     && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.ownerUid == resource.data.ownerUid
-                    && request.resource.data.ownerUid == request.resource.data.userId
                     && request.resource.data.personaId == personaId
                     && request.resource.data.personaId == resource.data.personaId;
-
-      // Same ownerUid-or-legacy-userId check as read, so messages written
-      // before ownerUid existed can still be deleted (persona deletion and
-      // account deletion would otherwise fail part-way on them).
-      allow delete: if isSignedIn()
-                    && (resource.data.ownerUid == request.auth.uid
-                        || resource.data.userId == request.auth.uid);
     }
 
     // User profiles: users/{uid}, written at signup step 2 (lib/users.ts)

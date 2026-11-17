@@ -116,7 +116,10 @@ export const lmStudioAdapter: LlmAdapter = {
               return;
             }
 
-            buffer += decoder.decode(value, { stream: true });
+            // SSE allows CRLF line endings. Normalize after appending, so a
+            // "\r" at the end of one chunk still pairs with the "\n" that
+            // starts the next.
+            buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
             let separatorIndex: number;
             while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
               const block = buffer.slice(0, separatorIndex);

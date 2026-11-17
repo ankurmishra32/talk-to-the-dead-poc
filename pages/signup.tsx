@@ -438,15 +438,19 @@ export default function SignupPage() {
             </form>
           )}
 
-          <div className="mt-8 text-center">
-            <button
-              onClick={() => router.push("/")}
-              className="text-sm font-medium"
-              style={{ color: "var(--color-brand)" }}
-            >
-              {strings.auth.signup.alreadyHaveAccount}
-            </button>
-          </div>
+          {/* Only before the account exists; on the profile step the user is
+              already signed in ("Use a different account" signs out). */}
+          {currentStep === 0 && (
+            <div className="mt-8 text-center">
+              <button
+                onClick={() => router.push("/")}
+                className="text-sm font-medium"
+                style={{ color: "var(--color-brand)" }}
+              >
+                {strings.auth.signup.alreadyHaveAccount}
+              </button>
+            </div>
+          )}
         </div>
 
         <p className="text-center text-xs mt-8" style={{ color: "var(--color-text-muted)" }}>

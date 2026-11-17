@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../lib/auth/useAuth";
 import { createLogger } from "../lib/logger";
@@ -11,19 +11,34 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { user, loading, signIn } = useAuth();
+
+  // Already signed in (or just signed in below): go to the dashboard, which
+  // in turn sends a user without a profile on to /signup.
+  useEffect(() => {
+    if (!loading && user) router.replace("/dashboard");
+  }, [user, loading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     try {
+      // Navigation happens in the effect above once auth state updates.
       await signIn(email, password);
-      router.push("/dashboard");
     } catch (err) {
       logger.error("Sign in failed", err);
       setError(strings.auth.genericError);
     }
   };
+
+  // Don't flash the login form at a user who is about to be redirected.
+  if (loading || user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--color-surface)" }}>
+        <p style={{ color: "var(--color-text-muted)" }}>{strings.dashboard.loading}</p>
+      </div>
+    );
+  }
 
   return (
     <div

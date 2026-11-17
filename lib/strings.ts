@@ -78,6 +78,10 @@ export const strings = {
     deleteButton: "Delete my account",
     deleting: "Deleting...",
     authError: "Incorrect password. Please try again.",
+    tooManyAttempts: "Too many attempts. Please wait a few minutes and try again.",
+    networkError: "You seem to be offline. Check your connection and try again.",
+    partialFailure:
+      "We couldn't finish deleting your account, and some data may already be removed. Please try again — it's safe to retry.",
     successMessage: "Account deleted. Redirecting...",
   },
 
@@ -245,6 +249,7 @@ export const strings = {
     confirmDeleteTitle: "Delete this memory?",
     confirmDeleteMessage: "This memory will be removed and cannot be undone.",
     saveFailed: "Couldn't save this memory. Please try again.",
+    loadFailed: "Couldn't load your saved memories. Please close and reopen Memories to try again.",
     updateFailed: "Couldn't update this memory. Please try again.",
     deleteFailed: "Couldn't delete this memory.",
   },

@@ -385,7 +385,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       try {
         await withTimeout(
           setDoc(userRef, {
-            ownerUid: user.uid,
             userId: user.uid,
             personaId: persona.id,
             role: "user",

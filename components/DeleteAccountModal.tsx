@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { deleteAccount } from "../lib/account";
+import { accountDeletionErrorMessage } from "../lib/account-errors";
 import { createLogger } from "../lib/logger";
 import { strings } from "../lib/strings";
 
@@ -47,14 +48,8 @@ export default function DeleteAccountModal({ open, user, onClose, onDeleted }: P
       onDeleted();
     } catch (err) {
       setLoading(false);
-      if (err instanceof Error && err.message.includes("auth/wrong-password")) {
-        setError(strings.account.authError);
-      } else if (err instanceof Error && err.message.includes("auth/requires-recent-login")) {
-        setError(strings.account.authError);
-      } else {
-        logger.error("Account deletion failed", err);
-        setError(strings.account.authError);
-      }
+      logger.error("Account deletion failed", err);
+      setError(accountDeletionErrorMessage(err));
     }
   };
 

@@ -266,7 +266,6 @@ export async function appendConversationMessage(
 
   const body = {
     fields: {
-      ownerUid: { stringValue: userId },
       userId: { stringValue: userId },
       personaId: { stringValue: personaId },
       role: { stringValue: message.role },
