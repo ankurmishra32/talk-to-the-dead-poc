@@ -32,7 +32,6 @@ export function mapPersonaDoc(
     languages: Array.isArray(data.languages) ? data.languages : [],
     howTheySpoke: Array.isArray(data.howTheySpoke) ? data.howTheySpoke : [],
     speechExamples: Array.isArray(data.speechExamples) ? data.speechExamples : [],
-    oftenSaid: Array.isArray(data.oftenSaid) ? data.oftenSaid : [],
     distinctiveStory: data.distinctiveStory ?? null,
   };
 }

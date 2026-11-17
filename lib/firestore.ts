@@ -110,7 +110,7 @@ export function readSpeechExamples(
       const mapFields = entry?.mapValue?.fields;
       if (!mapFields) return null;
       const phrase = mapFields.phrase?.stringValue;
-      const context = mapFields.context?.stringValue || mapFields.trigger?.stringValue;
+      const context = mapFields.context?.stringValue;
       if (!phrase || !context) return null;
       const example: SpeechExample = {
         phrase: phrase.trim(),
@@ -120,7 +120,7 @@ export function readSpeechExamples(
       if (meaning && meaning.trim()) {
         example.meaning = meaning.trim();
       }
-      const tone = mapFields.tone?.stringValue || mapFields.emotion?.stringValue;
+      const tone = mapFields.tone?.stringValue;
       if (tone && tone.trim()) {
         example.tone = tone.trim();
       }
@@ -168,14 +168,11 @@ export async function getPersona(
     id: personaId,
     name,
     ownerId,
-    // Legacy field — empty for new personas, may be populated for older ones.
-    traits: readString(fields, "traits") ?? "",
     relationship: readString(fields, "relationship") ?? undefined,
     theyCalledYou: readString(fields, "theyCalledYou") ?? undefined,
     languages: readStringArray(fields, "languages"),
     howTheySpoke: readStringArray(fields, "howTheySpoke"),
     speechExamples: readSpeechExamples(fields, "speechExamples"),
-    oftenSaid: readStringArray(fields, "oftenSaid"),
     distinctiveStory: readString(fields, "distinctiveStory") ?? undefined,
   };
 }

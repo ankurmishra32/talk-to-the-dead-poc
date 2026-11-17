@@ -6,6 +6,89 @@
 
 import type { ChatMessage, FirestoreDocLike, FirestoreChangeLike } from "./types";
 
+/**
+ * Limits on the conversation history sent to /api/chat. Shared by the client
+ * (which trims before sending) and the server (which trims again rather than
+ * rejecting), so a long chat never gets stuck on a 400.
+ */
+export const HISTORY_LIMITS = {
+  maxMessages: 40,
+  maxMessageChars: 4_000,
+  maxTotalChars: 24_000,
+} as const;
+
+type HistoryLimits = {
+  maxMessages: number;
+  maxMessageChars: number;
+  maxTotalChars: number;
+};
+
+/**
+ * Picks the most recent messages that fit within `limits`, newest first, and
+ * returns them in chronological order as bare `{ role, content }` objects
+ * (ids and other UI fields are stripped).
+ *
+ * - Empty / whitespace-only messages are skipped.
+ * - A message longer than `maxMessageChars` is shortened (keeping its start)
+ *   instead of dropped, so a single long reply doesn't block the chat.
+ * - The newest message is always kept, even if it alone exceeds the total.
+ */
+export function trimHistory(
+  messages: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
+  limits: HistoryLimits = HISTORY_LIMITS
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  let total = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (out.length >= limits.maxMessages) break;
+    const { role, content } = messages[i];
+    if (!content.trim()) continue;
+    const text =
+      content.length > limits.maxMessageChars
+        ? `${content.slice(0, limits.maxMessageChars - 1)}…`
+        : content;
+    if (out.length > 0 && total + text.length > limits.maxTotalChars) break;
+    out.push({ role, content: text });
+    total += text.length;
+  }
+  return out.reverse();
+}
+
+/**
+ * Converts a Firestore `createdAt` value to epoch milliseconds. Handles SDK
+ * Timestamps (`toMillis`), Dates, and returns undefined for anything else
+ * (e.g. a pending server timestamp, which reads as null).
+ */
+export function toMillis(value: unknown): number | undefined {
+  if (value instanceof Date) return value.getTime();
+  if (
+    value &&
+    typeof value === "object" &&
+    typeof (value as { toMillis?: unknown }).toMillis === "function"
+  ) {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  return undefined;
+}
+
+/**
+ * Inserts `incoming` keeping the list in time order: it goes after the last
+ * message that is not newer than it. Messages without a timestamp (local-only
+ * ones) don't move it. In the common case (a new message) this is an append.
+ */
+function insertByTime(list: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  const t = incoming.createdAtMs;
+  let idx = list.length;
+  if (t !== undefined) {
+    while (idx > 0) {
+      const prevT = list[idx - 1].createdAtMs;
+      if (prevT === undefined || prevT <= t) break;
+      idx--;
+    }
+  }
+  return [...list.slice(0, idx), incoming, ...list.slice(idx)];
+}
+
 /** True when a message id corresponds to a real persisted Firestore doc. */
 export function isPersistedId(id: string | undefined): id is string {
   return typeof id === "string" && !id.startsWith("local-");
@@ -47,13 +130,16 @@ export function appendUniqueMessage(
 export function mapMessageDocs(docs: FirestoreDocLike[]): ChatMessage[] {
   return docs
     .map((d): ChatMessage | null => {
-      const data = d.data() as { role?: string; content?: string };
+      const data = d.data() as { role?: string; content?: string; createdAt?: unknown };
       if (
         (data.role === "user" || data.role === "assistant") &&
         typeof data.content === "string"
       ) {
         const role: "user" | "assistant" = data.role;
-        return { id: d.id, role, content: data.content };
+        const message: ChatMessage = { id: d.id, role, content: data.content };
+        const createdAtMs = toMillis(data.createdAt);
+        if (createdAtMs !== undefined) message.createdAtMs = createdAtMs;
+        return message;
       }
       return null;
     })
@@ -64,7 +150,8 @@ export function mapMessageDocs(docs: FirestoreDocLike[]): ChatMessage[] {
 /**
  * Applies a Firestore docChanges batch to the local messages array.
  *
- * - "added" / "modified" → upsert by id. If the id is in `dirtyIds`
+ * - "added" / "modified" → upsert by id; a new id is inserted in time
+ *   order (by `createdAt`). If the id is in `dirtyIds`
  *   (the user has the message open in an editor), skip — local
  *   unsaved wins.
  * - "removed" → drop by id. Same dirty check; an in-flight edit
@@ -83,7 +170,7 @@ export function reconcileMessages(
   for (const change of changes) {
     const id = change.doc.id;
     if (dirtyIds.has(id)) continue;
-    const data = change.doc.data() as { role?: string; content?: string };
+    const data = change.doc.data() as { role?: string; content?: string; createdAt?: unknown };
     if (
       change.type === "removed" ||
       (data.role !== "user" && data.role !== "assistant") ||
@@ -100,15 +187,22 @@ export function reconcileMessages(
       role: data.role,
       content: data.content,
     };
+    const createdAtMs = toMillis(data.createdAt);
+    if (createdAtMs !== undefined) incoming.createdAtMs = createdAtMs;
     const idx = next.findIndex((m) => m.id === id);
     if (idx === -1) {
-      next = [...next, incoming];
+      next = insertByTime(next, incoming);
     } else if (
       next[idx].content !== incoming.content ||
-      next[idx].role !== incoming.role
+      next[idx].role !== incoming.role ||
+      // The server timestamp replaces an optimistic (browser-clock) one, so
+      // later time-ordered inserts compare against the server's clock.
+      (incoming.createdAtMs !== undefined &&
+        incoming.createdAtMs !== next[idx].createdAtMs)
     ) {
       next = [...next];
-      next[idx] = incoming;
+      // Keep the known timestamp while the incoming one is still pending.
+      next[idx] = { ...incoming, createdAtMs: incoming.createdAtMs ?? next[idx].createdAtMs };
     } else {
       continue;
     }

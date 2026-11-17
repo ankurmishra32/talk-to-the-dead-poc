@@ -111,8 +111,24 @@ service cloud.firestore {
                     && request.resource.data.personaId == personaId
                     && request.resource.data.personaId == resource.data.personaId;
 
+      // Same ownerUid-or-legacy-userId check as read, so messages written
+      // before ownerUid existed can still be deleted (persona deletion and
+      // account deletion would otherwise fail part-way on them).
       allow delete: if isSignedIn()
-                    && resource.data.ownerUid == request.auth.uid;
+                    && (resource.data.ownerUid == request.auth.uid
+                        || resource.data.userId == request.auth.uid);
+    }
+
+    // User profiles: users/{uid}, written at signup step 2 (lib/users.ts)
+    // and removed on account deletion (lib/account.ts). The document id
+    // is the owner's uid, so ownership is the path itself. The stored
+    // `uid` field must match too, so a profile can't claim another user.
+    match /users/{uid} {
+      allow read, delete: if isSignedIn() && request.auth.uid == uid;
+
+      allow create, update: if isSignedIn()
+                            && request.auth.uid == uid
+                            && request.resource.data.uid == uid;
     }
 
     // Default-deny anything not explicitly allowed above. Adding a

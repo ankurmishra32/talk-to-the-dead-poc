@@ -29,9 +29,13 @@ const focusHandlers = {
 
 export default function SignupPage() {
   const router = useRouter();
-  const { user, loading: authLoading, signUp } = useAuth();
+  const { user, loading: authLoading, signUp, signOut } = useAuth();
 
-  const [currentStep, setCurrentStep] = useState(0);
+  // The step is derived from auth state rather than stored: once a Firebase
+  // user exists, the account step is done. This covers both a fresh signup
+  // (signUp() flips `user` via onAuthChange) and a signed-in user without a
+  // profile who was redirected here from /dashboard to finish onboarding.
+  const currentStep = user ? 1 : 0;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -40,17 +44,30 @@ export default function SignupPage() {
   const [onboardingHint, setOnboardingHint] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [uid, setUid] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
-    getUserProfile(user.uid).then((profile) => {
-      if (profile) router.replace("/dashboard");
-    });
+    getUserProfile(user.uid)
+      .then((profile) => {
+        if (profile) router.replace("/dashboard");
+      })
+      .catch((err) => {
+        // Stay on the profile step; saving it will surface a friendly error.
+        logger.error("Profile lookup failed", err);
+      });
   }, [user, authLoading, router]);
 
-  const nextStep = () => setCurrentStep((s) => Math.min(s + 1, 1));
-  const prevStep = () => setCurrentStep((s) => Math.max(s - 1, 0));
+  // The account already exists at the profile step, so "Back" can't
+  // re-run account creation. Signing out is the way to switch accounts.
+  const handleUseDifferentAccount = async () => {
+    setError(null);
+    try {
+      await signOut();
+    } catch (err) {
+      logger.error("Sign out failed", err);
+      setError(strings.auth.genericError);
+    }
+  };
 
   const handleAccountSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,9 +84,8 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
-      const authUser = await signUp(email, password);
-      setUid(authUser.uid);
-      nextStep();
+      // onAuthChange sets `user`, which advances to the profile step.
+      await signUp(email, password);
     } catch (err) {
       logger.error("Sign up failed", err);
       setError(strings.auth.genericError);
@@ -80,16 +96,19 @@ export default function SignupPage() {
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uid || !user) return;
+    if (!user) return;
+    const name = displayName.trim();
+    if (!name) return;
 
     setLoading(true);
+    setError(null);
     try {
       await createUserProfile({
-        uid,
+        uid: user.uid,
         email: user.email || email,
-        displayName,
-        phone: phone || undefined,
-        onboardingHint: onboardingHint || undefined,
+        displayName: name,
+        phone: phone.trim() || undefined,
+        onboardingHint: onboardingHint.trim() || undefined,
       });
       router.push("/dashboard");
     } catch (err) {
@@ -393,15 +412,16 @@ export default function SignupPage() {
               <div className="flex items-center justify-between pt-2">
                 <button
                   type="button"
-                  onClick={prevStep}
-                  className="px-5 py-3 rounded-2xl text-sm font-semibold border transition-all duration-150 active:scale-[0.97]"
+                  onClick={handleUseDifferentAccount}
+                  disabled={loading}
+                  className="px-5 py-3 rounded-2xl text-sm font-semibold border transition-all duration-150 active:scale-[0.97] disabled:opacity-50"
                   style={{
                     color: "var(--color-text-secondary)",
                     borderColor: "var(--color-border)",
                     background: "var(--color-surface)",
                   }}
                 >
-                  {strings.auth.signup.backButton}
+                  {strings.auth.signup.useDifferentAccount}
                 </button>
                 <button
                   type="submit"

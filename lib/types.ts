@@ -20,17 +20,11 @@ export type PersonaDoc = {
   id: string;
   name: string;
   ownerId?: string;
-  // Legacy free-text trait field. Empty for new personas; may be populated
-  // for older ones. Note: lib/prompts.ts uses `traits: string`, while the
-  // server's getPersona surfaces it as a string. Kept required for the
-  // prompt builder's convenience.
-  traits: string;
   relationship?: string;
   theyCalledYou?: string;
   languages?: string[];
   howTheySpoke?: string[];
   speechExamples?: SpeechExample[];
-  oftenSaid?: string[];
   distinctiveStory?: string;
 };
 
@@ -53,6 +47,8 @@ export type ChatMessage = {
   id?: string;
   role: "user" | "assistant";
   content: string;
+  /** Epoch ms from the doc's `createdAt`; used to keep live inserts in order. */
+  createdAtMs?: number;
 };
 
 /** The subset of the Firebase user used by components. */
@@ -77,7 +73,6 @@ export type PersonaDetails = {
   languages?: string[];
   howTheySpoke?: string[];
   speechExamples?: SpeechExample[];
-  oftenSaid?: string[];
   distinctiveStory?: string | null;
 };
 
@@ -103,9 +98,7 @@ export type PersonaFirestoreDoc = {
   languages?: string[];
   howTheySpoke?: string[];
   speechExamples?: SpeechExample[];
-  oftenSaid?: string[];
   distinctiveStory?: string;
-  traits?: string;
 };
 
 /**

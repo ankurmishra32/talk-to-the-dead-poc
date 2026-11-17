@@ -35,6 +35,30 @@ async function deleteQueryBatch(q: ReturnType<typeof query>): Promise<number> {
 }
 
 /**
+ * Delete a persona together with everything that hangs off it: its
+ * memories and its conversation messages. Children go first and the
+ * persona doc last, so a failure part-way leaves the persona visible and
+ * the user can simply retry the delete (instead of orphaning data that
+ * no UI can reach any more).
+ */
+export async function deletePersonaWithData(uid: string, personaId: string): Promise<void> {
+  await deleteQueryBatch(
+    query(
+      collection(db, "memories"),
+      where("userId", "==", uid),
+      where("personaId", "==", personaId)
+    )
+  );
+  await deleteQueryBatch(
+    query(
+      collection(db, "conversations", personaId, "messages"),
+      where("userId", "==", uid)
+    )
+  );
+  await deleteDoc(doc(db, "personas", personaId));
+}
+
+/**
  * Delete everything associated with a Firebase user:
  *  1. Re-authenticate (Firebase requires recent credentials).
  *  2. Delete Firestore documents (personas, memories, conversation messages, user profile).

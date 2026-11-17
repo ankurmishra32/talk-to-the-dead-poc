@@ -84,7 +84,7 @@ describe("readSpeechExamples", () => {
     ]);
   });
 
-  it("maps legacy trigger -> context and emotion -> tone", () => {
+  it("does not accept the retired trigger / emotion field names", () => {
     const fields: FirestoreFields = {
       speechExamples: {
         arrayValue: {
@@ -102,13 +102,8 @@ describe("readSpeechExamples", () => {
         },
       },
     };
-    expect(readSpeechExamples(fields, "speechExamples")).toEqual([
-      {
-        context: "staying out late",
-        phrase: "itni raat kahan thi",
-        tone: "worried",
-      },
-    ]);
+    // `trigger` is not read as `context`, so the entry has no context and is skipped.
+    expect(readSpeechExamples(fields, "speechExamples")).toEqual([]);
   });
 
   it("skips entries missing phrase or context", () => {

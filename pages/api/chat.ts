@@ -11,6 +11,7 @@ import {
   releaseStreamSlot,
 } from "../../lib/rate-limit";
 import { createLogger } from "../../lib/logger";
+import { HISTORY_LIMITS, trimHistory } from "../../lib/messages";
 
 const logger = createLogger("api/chat");
 
@@ -23,17 +24,16 @@ type Response =
   | { reply: string }
   | { error: string };
 
-const MAX_MESSAGES = 40;
-const MAX_MESSAGE_CHARS = 4_000;
-const MAX_TOTAL_MESSAGE_CHARS = 24_000;
+// Upper bound on the raw array we're willing to look at. Anything beyond the
+// history limits is trimmed (not rejected), so this only guards against abuse.
+const MAX_RAW_MESSAGES = 200;
 
 function isValidMessage(m: unknown): m is ChatMessage {
   if (!m || typeof m !== "object") return false;
   const msg = m as { role?: unknown; content?: unknown };
   return (
     (msg.role === "user" || msg.role === "assistant") &&
-    typeof msg.content === "string" &&
-    msg.content.trim().length > 0
+    typeof msg.content === "string"
   );
 }
 
@@ -47,25 +47,34 @@ export default async function handler(
   }
 
   const body = req.body as Partial<Body> | undefined;
-  if (!body || typeof body.personaId !== "string" || !Array.isArray(body.messages)) {
+  if (
+    !body ||
+    typeof body.personaId !== "string" ||
+    !body.personaId.trim() ||
+    !Array.isArray(body.messages)
+  ) {
     return res.status(400).json({ error: "Body must be { personaId, messages[] }." });
   }
-  if (body.messages.length === 0 || body.messages.length > MAX_MESSAGES) {
-    return res.status(400).json({ error: `messages[] must contain 1–${MAX_MESSAGES} entries.` });
+  if (body.messages.length === 0 || body.messages.length > MAX_RAW_MESSAGES) {
+    return res.status(400).json({ error: `messages[] must contain 1–${MAX_RAW_MESSAGES} entries.` });
   }
   if (!body.messages.every(isValidMessage)) {
     return res.status(400).json({ error: "Each message must be { role: 'user'|'assistant', content: string }." });
   }
-  const messages = body.messages;
-  const totalMessageChars = messages.reduce((total, message) => total + message.content.length, 0);
-  if (
-    messages.some((message) => message.content.length > MAX_MESSAGE_CHARS) ||
-    totalMessageChars > MAX_TOTAL_MESSAGE_CHARS
-  ) {
+  // The turn being answered must be the user's, and must fit on its own.
+  // Older history is trimmed to the limits instead of rejected, so a long
+  // conversation never gets stuck.
+  const latest = body.messages[body.messages.length - 1];
+  if (latest.role !== "user" || !latest.content.trim()) {
+    return res.status(400).json({ error: "The last message must be a non-empty user message." });
+  }
+  if (latest.content.length > HISTORY_LIMITS.maxMessageChars) {
     return res.status(400).json({
-      error: `Messages must be at most ${MAX_MESSAGE_CHARS} characters each and ${MAX_TOTAL_MESSAGE_CHARS} characters in total.`,
+      error: `Messages must be at most ${HISTORY_LIMITS.maxMessageChars} characters.`,
     });
   }
+  // Also strips any extra fields (ids etc.) so only { role, content } reaches the LLM.
+  const messages: ChatMessage[] = trimHistory(body.messages);
 
   const authorization = req.headers.authorization ?? "";
   let uid: string;

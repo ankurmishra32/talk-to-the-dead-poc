@@ -6,6 +6,9 @@ import { getUserProfile } from "../lib/users";
 import PersonaSelection from "../components/PersonaSelection";
 import Chat from "../components/Chat";
 import { strings } from "../lib/strings";
+import { createLogger } from "../lib/logger";
+
+const logger = createLogger("Dashboard");
 
 type Persona = {
   id: string;
@@ -25,9 +28,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (loading || !user) return;
-    getUserProfile(user.uid).then((profile) => {
-      if (!profile) router.replace("/signup");
-    });
+    getUserProfile(user.uid)
+      .then((profile) => {
+        if (!profile) router.replace("/signup");
+      })
+      .catch((err) => {
+        // Don't bounce the user on a transient read failure; the guard
+        // re-runs on the next auth change / page load.
+        logger.error("Profile lookup failed", err);
+      });
   }, [user, loading, router]);
 
   if (loading || !user) {
@@ -48,7 +57,10 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen py-6 px-4" style={{ background: "var(--color-surface)" }}>
+      {/* key: a fresh Chat per persona, so in-flight state (e.g. a stopped
+          reply) can't leak into the next persona's conversation. */}
       <Chat
+        key={persona.id}
         persona={persona}
         user={toChatUser(user)}
         onBack={() => setPersona(null)}

@@ -51,6 +51,7 @@ export const strings = {
       passwordsMismatch: "Passwords do not match",
       nextButton: "Next",
       backButton: "Back",
+      useDifferentAccount: "Use a different account",
       buildYourProfile: "Build your profile",
       profileSubtitle: "Tell us a bit about yourself",
       nameLabel: "Display name",
@@ -107,7 +108,7 @@ export const strings = {
       `Please specify when they would say "${phrase}" (the situation or trigger).`,
     confirmDeleteTitle: (name: string) => `Delete "${name}"?`,
     confirmDeleteMessage:
-      "This persona and its conversation history will be removed and cannot be undone.",
+      "This persona, its memories, and its conversation history will be removed and cannot be undone.",
 
     steps: {
       identity: "Who they were",
@@ -211,6 +212,7 @@ export const strings = {
     cancel: "Cancel",
     messages: "Messages",
     sendFailure: "Couldn't send your message. Please try again.",
+    messageNotSaved: "Your message wasn't sent — it's back in the box below. Please try again.",
     networkError: "You seem to be offline. Check your connection and try again.",
     streamError: "Something went wrong while getting a reply. Please try again.",
     streamInterrupted: "The reply was cut off. Please try again.",

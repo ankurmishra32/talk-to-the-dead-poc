@@ -9,12 +9,13 @@ import {
   limit,
   getDocs,
   getDoc,
-  addDoc,
+  setDoc,
   deleteDoc,
   updateDoc,
   doc,
   startAfter,
   onSnapshot,
+  serverTimestamp,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import MemoryInput from "./MemoryInput";
@@ -24,6 +25,7 @@ import {
   isPersistedId,
   mapMessageDocs,
   reconcileMessages,
+  trimHistory,
 } from "../lib/messages";
 import type {
   ChatMessage,
@@ -40,6 +42,32 @@ import Confirm from "./Confirm";
 import { strings } from "../lib/strings";
 
 const PAGE_SIZE = 40;
+// How long to wait for the user's message to save before giving up.
+const SAVE_TIMEOUT_MS = 15_000;
+
+function isAbortError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { name?: unknown }).name === "AbortError"
+  );
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
 
 const logger = createLogger("Chat");
 
@@ -97,7 +125,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
             languages: Array.isArray(data.languages) ? data.languages : [],
             howTheySpoke: Array.isArray(data.howTheySpoke) ? data.howTheySpoke : [],
             speechExamples: Array.isArray(data.speechExamples) ? data.speechExamples : [],
-            oftenSaid: Array.isArray(data.oftenSaid) ? data.oftenSaid : [],
             distinctiveStory: data.distinctiveStory ?? null,
           });
         }
@@ -108,42 +135,67 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       }
     }
 
-    const messagesQuery = query(
-      collection(db, "conversations", persona.id, "messages"),
-      where("userId", "==", user.uid),
-      orderBy("createdAt", "desc"),
-      limit(PAGE_SIZE)
-    );
-    let isFirstMessagesSnap = true;
-    const unsubscribeMessages = onSnapshot(
-      messagesQuery,
-      (snap) => {
-        if (cancelled) return;
-        if (isFirstMessagesSnap) {
-          isFirstMessagesSnap = false;
-          const loaded = mapMessageDocs(snap.docs);
-          setMessages(loaded);
-          setCursor(snap.docs[snap.docs.length - 1] ?? null);
-          setHasMore(snap.docs.length === PAGE_SIZE);
-          setHistoryLoading(false);
-          return;
-        }
-        setMessages((prev) =>
-          reconcileMessages(prev, snap.docChanges(), dirtyIdsRef.current)
+    // History loading (A3): the first page is read once, then a live listener
+    // covers everything from the oldest loaded message onwards with NO limit.
+    // A limit(40) listener would report the oldest message as "removed" every
+    // time a new one arrives (it falls out of the window), making messages
+    // vanish mid-conversation. Older pages (loadOlder) stay static.
+    let unsubscribeMessages: (() => void) | null = null;
+    const messagesCol = collection(db, "conversations", persona.id, "messages");
+
+    async function loadMessages() {
+      try {
+        const firstPage = await getDocs(
+          query(
+            messagesCol,
+            where("userId", "==", user.uid),
+            orderBy("createdAt", "desc"),
+            limit(PAGE_SIZE)
+          )
         );
-      },
-      (err) => {
         if (cancelled) return;
-        logger.error("Conversation subscription failed", err);
+        setMessages(mapMessageDocs(firstPage.docs));
+        const oldest = firstPage.docs[firstPage.docs.length - 1] ?? null;
+        setCursor(oldest);
+        setHasMore(firstPage.docs.length === PAGE_SIZE);
+        setHistoryLoading(false);
+
+        const oldestCreatedAt = oldest?.get("createdAt");
+        const liveQuery = oldestCreatedAt
+          ? query(
+              messagesCol,
+              where("userId", "==", user.uid),
+              where("createdAt", ">=", oldestCreatedAt),
+              orderBy("createdAt", "desc")
+            )
+          : query(messagesCol, where("userId", "==", user.uid), orderBy("createdAt", "desc"));
+        unsubscribeMessages = onSnapshot(
+          liveQuery,
+          (snap) => {
+            if (cancelled) return;
+            setMessages((prev) =>
+              reconcileMessages(prev, snap.docChanges(), dirtyIdsRef.current)
+            );
+          },
+          (err) => {
+            if (cancelled) return;
+            logger.error("Conversation subscription failed", err);
+            setError(strings.chat.syncFailed);
+          }
+        );
+      } catch (err) {
+        if (cancelled) return;
+        logger.error("Failed to load conversation", err);
         setError(strings.chat.syncFailed);
         setHistoryLoading(false);
       }
-    );
+    }
 
+    loadMessages();
     loadProfile();
     return () => {
       cancelled = true;
-      unsubscribeMessages();
+      unsubscribeMessages?.();
     };
   }, [persona.id, persona.name, user.uid]);
 
@@ -288,121 +340,141 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     const text = input.trim();
     if (!text || loading) return;
     sendingRef.current = true;
-
-    const localKey = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const next: ChatMessage[] = [
-      ...messages,
-      { role: "user", content: text, id: localKey },
-    ];
-    setMessages(next);
-    setInput("");
     setError(null);
     setStreamingContent("");
     setLoading(true);
     pendingAssistantIdRef.current = null;
 
-    addDoc(collection(db, "conversations", persona.id, "messages"), {
-      ownerUid: user.uid,
-      userId: user.uid,
-      personaId: persona.id,
+    // The doc id is assigned up front, so the optimistic message and the
+    // realtime listener's copy share one id (no placeholder swap, no duplicate).
+    const userRef = doc(collection(db, "conversations", persona.id, "messages"));
+    const userMessage: ChatMessage = {
+      id: userRef.id,
       role: "user",
       content: text,
-      createdAt: new Date(),
-    })
-      .then((docRef) => {
-        setMessages((prev) => {
-          const persistedId = docRef.id;
-          const hasPersisted = prev.some((m) => m.id === persistedId);
-          return prev.reduce<ChatMessage[]>((acc, m) => {
-            if (m.id === localKey) {
-              // If the persisted doc already arrived via the realtime
-              // subscription, drop the local placeholder to avoid a
-              // duplicate id. Otherwise swap it in.
-              if (!hasPersisted) acc.push({ ...m, id: persistedId });
-              return acc;
-            }
-            acc.push(m);
-            return acc;
-          }, []);
-        });
-      })
-      .catch((err) => {
-        logger.error("Failed to persist user message", err);
-      });
+      createdAtMs: Date.now(),
+    };
+    const history = [...messages, userMessage];
+    setMessages((prev) => appendUniqueMessage(prev, userMessage));
+    setInput("");
 
-    const idToken = await getAccessToken();
-    if (!idToken) {
-      setLoading(false);
-      sendingRef.current = false;
-      setError(strings.chat.signedOut);
-      return;
-    }
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let res: Response;
+    let controller: AbortController | null = null;
+    // Every exit path below goes through `finally`, so the composer can never
+    // be left locked (A1).
     try {
-      res = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({ personaId: persona.id, messages: next.slice(-40) }),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      setLoading(false);
-      sendingRef.current = false;
-      if (err instanceof DOMException && err.name === "AbortError") {
-        if (streamingContent) {
-          const assistantId = pendingAssistantIdRef.current ?? undefined;
-          setMessages((prev) =>
-            appendUniqueMessage(prev, {
-              id: assistantId,
-              role: "assistant",
-              content: streamingContent,
-            })
-          );
-          setStreamingContent("");
-        }
+      // Save the user's turn before asking for a reply (A5), so history never
+      // has a reply without the message it answers. serverTimestamp keeps the
+      // order right regardless of the browser's clock (A4).
+      try {
+        await withTimeout(
+          setDoc(userRef, {
+            ownerUid: user.uid,
+            userId: user.uid,
+            personaId: persona.id,
+            role: "user",
+            content: text,
+            createdAt: serverTimestamp(),
+          }),
+          SAVE_TIMEOUT_MS
+        );
+      } catch (err) {
+        logger.error("Failed to persist user message", err);
+        // If the write is only slow (e.g. offline queue), cancel it too, so the
+        // message can't reappear later as a duplicate of the retry.
+        deleteDoc(userRef).catch(() => {});
+        setMessages((prev) => prev.filter((m) => m.id !== userRef.id));
+        setInput((current) => current || text);
+        setError(strings.chat.messageNotSaved);
         return;
       }
-      setError(strings.chat.networkError);
-      sendingRef.current = false;
-      return;
-    }
 
-    if (res.status === 401) {
-      setLoading(false);
-      sendingRef.current = false;
-      setError(strings.chat.sessionExpired);
-      return;
-    }
-    if (!res.ok || !res.body) {
-      setLoading(false);
-      sendingRef.current = false;
-      let detail = "";
-      try {
-        const data = (await res.json()) as { error?: string };
-        detail = data.error ?? "";
-      } catch {
-        // ignore
+      const idToken = await getAccessToken();
+      if (!idToken) {
+        setError(strings.chat.signedOut);
+        return;
       }
-      setError(detail || strings.chat.sendFailure);
-      return;
-    }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let accumulated = "";
-    let sawDone = false;
+      controller = new AbortController();
+      abortRef.current = controller;
 
-    const handleAbort = () => {
-      setLoading(false);
-      sendingRef.current = false;
+      let res: Response;
+      try {
+        res = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+          // Trimmed to the shared limits, so a long chat never hits a 400 (A2).
+          body: JSON.stringify({ personaId: persona.id, messages: trimHistory(history) }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (!isAbortError(err)) setError(strings.chat.networkError);
+        return;
+      }
+
+      if (res.status === 401) {
+        setError(strings.chat.sessionExpired);
+        return;
+      }
+      if (!res.ok || !res.body) {
+        let detail = "";
+        try {
+          const data = (await res.json()) as { error?: string };
+          detail = data.error ?? "";
+        } catch {
+          // ignore
+        }
+        setError(detail || strings.chat.sendFailure);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      let aborted = false;
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buffer.indexOf("\n\n")) !== -1) {
+            const eventBlock = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const ev = parseSseEvent(eventBlock);
+            if (!ev) continue;
+            if (ev.event === "delta") {
+              const d = ev.data as { delta?: unknown };
+              if (typeof d.delta === "string") {
+                accumulated += d.delta;
+                setStreamingContent(accumulated);
+              }
+            } else if (ev.event === "id") {
+              const d = ev.data as { id?: unknown };
+              if (typeof d.id === "string") {
+                pendingAssistantIdRef.current = d.id;
+              }
+            } else if (ev.event === "error") {
+              const d = ev.data as { error?: unknown };
+              setError(typeof d.error === "string" ? d.error : strings.chat.streamError);
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        if (!isAbortError(err)) {
+          setError(strings.chat.streamInterrupted);
+          return;
+        }
+        aborted = true;
+      }
+
+      // Commit the reply: the full one, or the partial text after Stop.
+      // Empty replies are never added (they'd be sent back as invalid history).
       if (accumulated) {
         const assistantId = pendingAssistantIdRef.current ?? undefined;
         setMessages((prev) =>
@@ -412,67 +484,14 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
             content: accumulated,
           })
         );
-        setStreamingContent("");
+      } else if (!aborted) {
+        setError(strings.chat.emptyReply);
       }
-    };
-
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buffer.indexOf("\n\n")) !== -1) {
-          const eventBlock = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          const ev = parseSseEvent(eventBlock);
-          if (!ev) continue;
-          if (ev.event === "delta") {
-            const d = ev.data as { delta?: unknown };
-            if (typeof d.delta === "string") {
-              accumulated += d.delta;
-              setStreamingContent(accumulated);
-            }
-          } else if (ev.event === "done") {
-            sawDone = true;
-          } else if (ev.event === "id") {
-            const d = ev.data as { id?: unknown };
-            if (typeof d.id === "string") {
-              pendingAssistantIdRef.current = d.id;
-            }
-          } else if (ev.event === "error") {
-            const d = ev.data as { error?: unknown };
-            setError(typeof d.error === "string" ? d.error : strings.chat.streamError);
-            setLoading(false);
-            setStreamingContent("");
-            return;
-          }
-        }
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        handleAbort();
-        return;
-      }
+    } finally {
+      if (controller && abortRef.current === controller) abortRef.current = null;
       setLoading(false);
-      setError(strings.chat.streamInterrupted);
       setStreamingContent("");
-      return;
-    }
-
-    setLoading(false);
-    sendingRef.current = false;
-    const assistantId = pendingAssistantIdRef.current ?? undefined;
-    setMessages((prev) =>
-      appendUniqueMessage(prev, {
-        id: assistantId,
-        role: "assistant",
-        content: accumulated,
-      })
-    );
-    setStreamingContent("");
-    if (!sawDone && !accumulated) {
-      setError(strings.chat.emptyReply);
+      sendingRef.current = false;
     }
   };
 

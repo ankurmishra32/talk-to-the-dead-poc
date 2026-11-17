@@ -4,6 +4,8 @@ import {
   mapMessageDocs,
   reconcileMessages,
   isPersistedId,
+  trimHistory,
+  toMillis,
 } from "../lib/messages";
 import type {
   ChatMessage,
@@ -13,7 +15,7 @@ import type {
 
 function snap(
   id: string,
-  data: { role?: string; content?: string }
+  data: { role?: string; content?: string; createdAt?: unknown }
 ): FirestoreDocLike {
   return { id, data: () => data };
 }
@@ -157,5 +159,114 @@ describe("reconcileMessages", () => {
     expect(reconcileMessages(prev, changes, new Set())).toEqual([
       { id: "a", role: "user", content: "hi" },
     ]);
+  });
+});
+
+// Minimal stand-in for a Firestore Timestamp (only toMillis is read).
+const ts = (ms: number) => ({ toMillis: () => ms });
+
+describe("reconcileMessages time ordering", () => {
+  it("inserts a new doc by createdAt rather than always appending", () => {
+    const prev: ChatMessage[] = [
+      { id: "a", role: "user", content: "1", createdAtMs: 100 },
+      { id: "c", role: "user", content: "3", createdAtMs: 300 },
+    ];
+    const changes = [change("added", snap("b", { role: "assistant", content: "2", createdAt: ts(200) }))];
+    expect(reconcileMessages(prev, changes, new Set()).map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("appends when the newest message has no timestamp (local-only)", () => {
+    const prev: ChatMessage[] = [
+      { id: "a", role: "user", content: "1", createdAtMs: 100 },
+      { id: "local-x", role: "assistant", content: "partial" },
+    ];
+    const changes = [change("added", snap("b", { role: "user", content: "2", createdAt: ts(50) }))];
+    expect(reconcileMessages(prev, changes, new Set()).map((m) => m.id)).toEqual(["a", "local-x", "b"]);
+  });
+
+  it("replaces an optimistic browser-clock timestamp with the server one", () => {
+    // Browser clock ahead: optimistic 9_000, server says 1_000.
+    const prev: ChatMessage[] = [{ id: "u", role: "user", content: "hi", createdAtMs: 9_000 }];
+    const confirmed = reconcileMessages(
+      prev,
+      [change("modified", snap("u", { role: "user", content: "hi", createdAt: ts(1_000) }))],
+      new Set()
+    );
+    expect(confirmed[0].createdAtMs).toBe(1_000);
+    // The reply (server time 2_000) now lands after the user message.
+    const withReply = reconcileMessages(
+      confirmed,
+      [change("added", snap("r", { role: "assistant", content: "yo", createdAt: ts(2_000) }))],
+      new Set()
+    );
+    expect(withReply.map((m) => m.id)).toEqual(["u", "r"]);
+  });
+
+  it("keeps the known timestamp while the server one is pending (null)", () => {
+    const prev: ChatMessage[] = [{ id: "u", role: "user", content: "hi", createdAtMs: 5 }];
+    const next = reconcileMessages(
+      prev,
+      [change("modified", snap("u", { role: "user", content: "edited", createdAt: null }))],
+      new Set()
+    );
+    expect(next[0]).toEqual({ id: "u", role: "user", content: "edited", createdAtMs: 5 });
+  });
+});
+
+describe("toMillis", () => {
+  it("reads Timestamps and Dates, and ignores anything else", () => {
+    expect(toMillis(ts(42))).toBe(42);
+    expect(toMillis(new Date(7))).toBe(7);
+    expect(toMillis(null)).toBeUndefined();
+    expect(toMillis("2024-01-01")).toBeUndefined();
+  });
+});
+
+describe("trimHistory", () => {
+  const limits = { maxMessages: 3, maxMessageChars: 10, maxTotalChars: 25 };
+  const u = (content: string) => ({ role: "user" as const, content });
+  const a = (content: string) => ({ role: "assistant" as const, content });
+
+  it("keeps only the newest maxMessages, in chronological order", () => {
+    expect(trimHistory([u("1"), a("2"), u("3"), a("4"), u("5")], limits)).toEqual([
+      u("3"),
+      a("4"),
+      u("5"),
+    ]);
+  });
+
+  it("strips extra fields such as ids", () => {
+    const withId = { id: "x", createdAtMs: 1, role: "user" as const, content: "hi" };
+    expect(trimHistory([withId], limits)).toEqual([{ role: "user", content: "hi" }]);
+  });
+
+  it("shortens an over-long message instead of failing", () => {
+    const [m] = trimHistory([a("x".repeat(50))], limits);
+    expect(m.content).toHaveLength(10);
+    expect(m.content.endsWith("…")).toBe(true);
+  });
+
+  it("stops before exceeding the total character budget", () => {
+    // 10 + 10 + 10 > 25, so only the two newest fit.
+    const out = trimHistory([u("a".repeat(10)), a("b".repeat(10)), u("c".repeat(10))], limits);
+    expect(out.map((m) => m.content[0])).toEqual(["b", "c"]);
+  });
+
+  it("skips empty messages", () => {
+    expect(trimHistory([u("hi"), a("   "), u("there")], limits)).toEqual([u("hi"), u("there")]);
+  });
+
+  it("always keeps the newest message", () => {
+    expect(trimHistory([u("x".repeat(50))], { ...limits, maxTotalChars: 1 })).toHaveLength(1);
+  });
+
+  it("a 60-message chat of 4k replies stays within the default limits", () => {
+    const long = Array.from({ length: 60 }, (_, i) => (i % 2 ? a("r".repeat(4_000)) : u("q")));
+    long.push(u("latest"));
+    const out = trimHistory(long);
+    const total = out.reduce((n, m) => n + m.content.length, 0);
+    expect(out.length).toBeLessThanOrEqual(40);
+    expect(total).toBeLessThanOrEqual(24_000);
+    expect(out[out.length - 1]).toEqual(u("latest"));
   });
 });

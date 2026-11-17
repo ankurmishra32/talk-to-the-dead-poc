@@ -6,7 +6,6 @@ function basePersona(): PersonaDoc {
   return {
     id: "p1",
     name: "Ammi",
-    traits: "",
   };
 }
 
@@ -99,28 +98,21 @@ describe("buildSystemPrompt", () => {
     expect(demoCount).toBe(3);
   });
 
-  it("adds no few-shot demo when only legacy oftenSaid is present", () => {
-    const prompt = buildSystemPrompt(
-      { ...basePersona(), oftenSaid: ["khana kha liya?"] },
-      []
-    );
+  it("adds no behavioral section or demos without speech examples", () => {
+    const prompt = buildSystemPrompt(basePersona(), []);
+    expect(prompt).not.toContain("Behavioural Patterns");
     expect(prompt).not.toContain("Few-shot demonstrations:");
   });
 
-  it("does not include behavioral section when no examples or oftenSaid", () => {
-    const prompt = buildSystemPrompt(basePersona(), []);
-    expect(prompt).not.toContain("BEHAVIORAL EXECUTION RULE");
-    expect(prompt).not.toContain("Unstructured phrases they used");
-  });
-
-  it("renders legacy oftenSaid list", () => {
-    const prompt = buildSystemPrompt(
-      { ...basePersona(), oftenSaid: ["khana kha liya?", "sona time"] },
-      []
-    );
-    expect(prompt).toContain("Unstructured phrases they used (Legacy)");
-    expect(prompt).toContain("1. \"khana kha liya?\"");
-    expect(prompt).toContain("2. \"sona time\"");
+  it("does not render retired oftenSaid / traits fields", () => {
+    const persona = {
+      ...basePersona(),
+      oftenSaid: ["khana kha liya?"],
+      traits: "always hummed old songs",
+    } as PersonaDoc;
+    const prompt = buildSystemPrompt(persona, []);
+    expect(prompt).not.toContain("khana kha liya?");
+    expect(prompt).not.toContain("always hummed old songs");
   });
 
   it("includes saved memories as a numbered list", () => {

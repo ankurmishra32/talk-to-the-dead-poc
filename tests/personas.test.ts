@@ -35,7 +35,6 @@ describe("mapPersonaDoc", () => {
       languages: ["Hindi"],
       howTheySpoke: ["Warm"],
       speechExamples: [{ context: "t", phrase: "p" }],
-      oftenSaid: ["x"],
       distinctiveStory: "story",
     });
     expect(mapPersonaDoc(doc, OWNER)).toEqual({
@@ -47,7 +46,6 @@ describe("mapPersonaDoc", () => {
       languages: ["Hindi"],
       howTheySpoke: ["Warm"],
       speechExamples: [{ context: "t", phrase: "p" }],
-      oftenSaid: ["x"],
       distinctiveStory: "story",
     });
   });
@@ -63,7 +61,6 @@ describe("mapPersonaDoc", () => {
       languages: [],
       howTheySpoke: [],
       speechExamples: [],
-      oftenSaid: [],
       distinctiveStory: null,
     });
   });

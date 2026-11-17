@@ -4,8 +4,8 @@ import {
   collection,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
+  deleteField,
   query,
   where,
   orderBy,
@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "../lib/auth/useAuth";
 import { mapPersonaDoc, reconcilePersonas } from "../lib/personas";
+import { deletePersonaWithData } from "../lib/account";
 import type { PersonaItem, PersonaReference } from "../lib/types";
 import { createLogger } from "../lib/logger";
 import Confirm from "./Confirm";
@@ -130,28 +131,16 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
     setLanguages(p.languages || []);
     setHowTheySpoke(p.howTheySpoke || []);
 
-    if (p.speechExamples && p.speechExamples.length > 0) {
-      setSpeechExamples(
-        p.speechExamples.map((ex) => ({
-          phrase: ex.phrase || "",
-          context: ex.context || "",
-          meaning: ex.meaning || "",
-          tone: ex.tone || "",
-          reaction: ex.reaction || "",
-        }))
-      );
-      setShowOptional(p.speechExamples.map(() => false));
-    } else if (p.oftenSaid && p.oftenSaid.length > 0) {
-      setSpeechExamples(
-        p.oftenSaid.map((phrase) => ({
-          phrase: phrase || "",
-          context: "",
-          meaning: "",
-          tone: "",
-          reaction: "",
-        }))
-      );
-      setShowOptional(p.oftenSaid.map(() => false));
+    const loaded: SpeechExampleInput[] = (p.speechExamples ?? []).map((ex) => ({
+      phrase: ex.phrase || "",
+      context: ex.context || "",
+      meaning: ex.meaning || "",
+      tone: ex.tone || "",
+      reaction: ex.reaction || "",
+    }));
+    if (loaded.length > 0) {
+      setSpeechExamples(loaded);
+      setShowOptional(loaded.map(() => false));
     } else {
       setSpeechExamples([{ phrase: "", context: "", meaning: "", tone: "", reaction: "" }]);
       setShowOptional([false]);
@@ -164,8 +153,14 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   };
 
   const handleDelete = async (p: PersonaItem) => {
+    if (!userId) {
+      setError(strings.persona.signOutRequired);
+      return;
+    }
     try {
-      await deleteDoc(doc(db, "personas", p.id));
+      // Removes the persona's memories and conversation history too, so
+      // nothing is left behind that the UI (or account deletion) can't reach.
+      await deletePersonaWithData(userId, p.id);
       setExisting((prev) => prev.filter((item) => item.id !== p.id));
       if (editingId === p.id) resetForm();
     } catch (err) {
@@ -213,8 +208,6 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       })
       .filter((item) => item.phrase.length > 0 && item.context.length > 0);
 
-    const legacyOftenSaid = cleanSpeechExamples.map((item) => item.phrase);
-
     const personaPayload = {
       name: name.trim(),
       relationship: relationship || null,
@@ -222,9 +215,7 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       languages,
       howTheySpoke,
       speechExamples: cleanSpeechExamples,
-      oftenSaid: legacyOftenSaid,
       distinctiveStory: distinctiveStory.trim() || null,
-      traits: "",
       userId,
     };
 
@@ -232,6 +223,11 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
       if (editingId) {
         await updateDoc(doc(db, "personas", editingId), {
           ...personaPayload,
+          // Drop the retired oftenSaid / traits fields from docs written
+          // before they were removed, so stored personas converge on the
+          // current schema as they are edited.
+          oftenSaid: deleteField(),
+          traits: deleteField(),
           updatedAt: new Date(),
         });
         setExisting((prev) =>

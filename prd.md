@@ -83,8 +83,7 @@ The user describes the person through structured, non-technical questions. No pr
 **Acceptance criteria**
 - Each speech example is optional, but a phrase requires a context.
 - The user can add/remove multiple speech examples.
-- Personas can be created, edited, and deleted from the dashboard.
-- Existing personas using legacy fields (`oftenSaid`, free-text `traits`) must keep working.
+- Personas can be created, edited, and deleted from the dashboard. Deleting a persona also deletes its memories and conversation history.
 
 ### 4.3 Streaming chat
 | Requirement | Acceptance criteria |
@@ -171,7 +170,7 @@ See `architecture.md` for the full field-level schema.
 ### 7.2 Robustness
 - **Rate limiting:** per-UID token bucket (default 10 req/min, burst 5) returns `429` with `Retry-After`.
 - **Concurrency cap:** limits in-flight LLM streams (default 2 per UID, 10 globally) returns `503` when saturated.
-- **Input validation:** the chat endpoint caps request at 40 messages and 4000 chars each (24000 total).
+- **Input validation:** the user's new message is capped at 4000 chars. Older history is trimmed to the newest 40 messages / 24000 chars (each shortened to 4000) rather than rejected, so long conversations keep working.
 
 ### 7.3 Performance
 - Responses stream incrementally so first-token latency is minimal.
@@ -203,8 +202,8 @@ This PoC validates the core loop. Planned phases:
 
 ## 9. Known Gaps (intentional, not bugs)
 
-- **Embeddings / retrieval** — `listMemoriesForPersona` is a list-all-then-filter pass. Fine for tens of memories; needs a structured query or embeddings once there are hundreds.
-- **Few-shot exemplars** — the prompt uses framing + style hints but no example Q/A pairs. Adding 2–3 stored "they would have said…" examples materially improves fidelity on small local models.
-- **Cross-instance rate limiting** — the rate limiter is in-process. Each cold start on Vercel gets a fresh store; fine for a personal project, swap for a Redis-backed implementation at scale.
+- **Memory retrieval** — only the 20 most recent memories for a persona reach the prompt. Fine for tens of memories; needs relevance ranking or embeddings once there are hundreds.
+- **Few-shot exemplars** — up to 3 demos are built from the persona's speech examples, but there are no real "they would have said…" Q/A pairs from the user yet.
+- **Cross-instance rate limiting** — shared across instances via Upstash Redis when configured; without it, each cold start on Vercel gets a fresh in-process store.
 - **Streaming partial saves** — reloading mid-stream loses the partial reply; the conversation shows up to the last completed turn. Matches user intuition.
-- **Realtime coverage of older pages** — realtime sync covers only the active chat's latest 40 messages; older paginated pages are static until scrolled back to.
+- **Realtime coverage of older pages** — realtime sync covers the first loaded page (latest 40 at open) and everything newer; older pages loaded by scrolling up are static.

@@ -12,9 +12,9 @@
 
 import type { ChatMessage as ClientChatMessage } from "../types";
 
-// The LLM wire contract is the shared ChatMessage minus the client-side
-// `id` reconciliation field (request messages never carry a document id).
-export type ChatMessage = Omit<ClientChatMessage, "id">;
+// The LLM wire contract is just role + content from the shared ChatMessage
+// (no document id or other UI-only fields).
+export type ChatMessage = Pick<ClientChatMessage, "role" | "content">;
 
 export type ChatRequest = {
   system: string;

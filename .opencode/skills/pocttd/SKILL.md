@@ -71,11 +71,9 @@ phrase.
   supplied persona fields.
 - Preserve the practical meaning/subtext of Hindi, Hinglish, and colloquial
   expressions rather than translating literally.
-- Legacy personas using `oftenSaid: string[]` + free-text `traits` must keep
-  working; treat legacy phrases as vocabulary evidence, never mandatory.
-- Structured `speechExamples`: `context` (trigger), `phrase`, optional
-  `meaning`, `tone`, `reaction`. `lib/firestore.ts` accepts legacy aliases
-  (`trigger`→context, `emotion`→tone).
+- Structured `speechExamples` are the only phrase source: `context` (trigger),
+  `phrase`, optional `meaning`, `tone`, `reaction`. The old `oftenSaid` /
+  `traits` fields and `trigger`/`emotion` aliases were removed (pre-release).
 - Few-shot exemplars live under the behavioral section, capped at 3, built only
   from the person's own recorded fields.
 
@@ -93,7 +91,7 @@ naturally; non-trigger → phrase should NOT appear.
   `lib/prompts.ts`, `lib/firestore.ts`, `pages/api/chat.ts`.
 - Make the smallest coherent, incremental change. Do not rewrite Next.js,
   Firebase, the chat flow, or the LLM adapter for a persona feature.
-- Preserve stored data and backward compatibility (`oftenSaid`, `traits`).
+- Pre-release: prefer a clean schema over backward-compatibility shims.
 - Validate with the project's checks (see below) before broad follow-up.
 
 ## Commands / checks

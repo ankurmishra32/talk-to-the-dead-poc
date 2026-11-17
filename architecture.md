@@ -15,7 +15,7 @@ This document describes how the `talk-to-the-dead-poc` codebase is wired togethe
 | Auth | Firebase Auth (email/password) — adapter-shaped for future swap |
 | Database | Cloud Firestore, **named database** `talk-to-the-dead` |
 | LLM | Adapter interface in `lib/llm/` — LCM Studio (default) or Ollama |
-| Rate limiting | In-process per-UID token bucket + concurrency cap (`lib/rate-limit.ts`) |
+| Rate limiting | Per-UID rate limit + concurrency cap (`lib/rate-limit.ts`); shared Upstash Redis when configured, in-process fallback |
 | Server-side data access | Firestore REST + Identity Toolkit REST (no `firebase-admin`) |
 
 ### Why no `firebase-admin`?
@@ -69,7 +69,7 @@ Two distinct data paths:
 `pages/api/chat.ts` is the only route. It returns `text/event-stream`.
 
 1. **Method check** — only `POST` (405 otherwise).
-2. **Body validation** — `{ personaId: string, messages: ChatMessage[] }`. Cap: 40 messages, 4000 chars each, 24000 total. Each message is `{ role: "user"|"assistant", content: string }`.
+2. **Body validation** — `{ personaId: string, messages: ChatMessage[] }`, each `{ role: "user"|"assistant", content: string }`. The last message must be a non-empty user message of at most 4000 chars. The rest of the history is **trimmed, not rejected** by `trimHistory` (`lib/messages.ts`, `HISTORY_LIMITS`): newest 40 messages, each shortened to 4000 chars, 24000 total. Only `{ role, content }` reaches the LLM.
 3. **Auth** — `authAdapter.verifyAccessToken(authorization)` → `uid` (401 on failure).
 4. **Rate limit** — `checkRequestRate(uid)` — token bucket (default 10/min, burst 5). 429 + `Retry-After` on reject.
 5. **Load persona** — `getPersona(personaId, uid, authorization)`. Returns `null` → 404 (ownership enforced, **no existence leak**).
@@ -82,7 +82,7 @@ Two distinct data paths:
 12. **Persistence** — after the stream ends, await `finalReply` + `completed`. If `completed === true`, call `appendConversationMessage(...)` (returns the Firestore doc id), emit `event: id { id }`, then `releaseStreamSlot(uid)` + `res.end()`.
 13. **Abort** — `req.on("close", () => ac.abort())` — a client disconnect cancels the LLM stream.
 
-The client sends its **last 40 messages** in the request body (matching the route's `slice(-40)` cap).
+The client trims its history with the same `trimHistory` / `HISTORY_LIMITS` before sending, and saves the user's message (with `serverTimestamp()`) **before** calling the route; if that save fails, the message goes back into the composer.
 
 ---
 
@@ -160,8 +160,6 @@ removed by account deletion in `lib/account.ts`.
 | `languages` | string[]? | Hindi/English/Hinglish/Other |
 | `howTheySpoke` | string[]? | Quiet/Talkative/Direct/Playful/Sarcastic/Formal/Emotional/Blunt |
 | `speechExamples` | SpeechExample[]? | Behavioral patterns |
-| `oftenSaid` | string[]? | **Legacy** — always populated as `speechExamples.map(→phrase)` |
-| `traits` | string | **Legacy** — empty string for new personas |
 | `distinctiveStory` | string? | Free-text background |
 | `createdAt` | timestamp | |
 | `updatedAt` | timestamp? | Only on edit |
@@ -176,7 +174,7 @@ removed by account deletion in `lib/account.ts`.
   reaction?: string;   // Optional — typical behavioral follow-up
 }
 ```
-Legacy aliases accepted during read: `trigger` → `context`, `emotion` → `tone`.
+The retired `oftenSaid`, `traits`, and `trigger`/`emotion` aliases are no longer read; editing a persona deletes `oftenSaid`/`traits` from its stored doc.
 
 ### memories/{memoryId}
 | Field | Type | Notes |
@@ -262,6 +260,11 @@ SDK (via `lib/users.ts` / `lib/account.ts`), not through the adapter:
   batch-deletes a user's Firestore data (personas, memories, conversation
   messages via `deleteQueryBatch`, then the profile doc), and calls
   `deleteUser()` on the Firebase Auth account.
+- `deletePersonaWithData()` (used by the persona list's delete) removes a
+  persona's memories and `conversations/{personaId}/messages` first, then the
+  persona doc, so nothing is orphaned and a failed delete can be retried.
+- `/signup` derives its step from auth state: a signed-in user without a
+  `users/{uid}` profile lands directly on the profile step.
 
 ---
 
@@ -271,7 +274,7 @@ SDK (via `lib/users.ts` / `lib/account.ts`), not through the adapter:
 
 1. **Identity & Relationship Frame** — simulation framing + terms of address.
 2. **Languages & Communication Nuances** — pragmatics; preserve idiom/slang; don't translate literally.
-3. **Behavioral Patterns & Situational Responses** (highest priority) — each speechExample as Trigger / Tone / Phrase / Meaning / Reaction with execution rules (chain, don't mechanically insert, precedence over stereotypes). Legacy fallback: bare `oftenSaid` list with a "don't recite mechanically" rule.
+3. **Behavioral Patterns & Situational Responses** (highest priority) — each speechExample as Trigger / Tone / Phrase / Meaning / Reaction with execution rules (chain, don't mechanically insert, precedence over stereotypes).
 4. **General Speaking Style** — `howTheySpoke` joined; "don't caricature."
 5. **Memories & Background Context** — `distinctiveStory` + numbered memories.
 6. **Conversational Discipline** — avoid chatbot boilerplate, first person, 1–3 sentence replies, don't invent facts, deflect unknowns.
@@ -289,7 +292,7 @@ Helpers:
 - `getApiKey()` → `FIREBASE_API_KEY` (throws if missing)
 - `authenticatedHeaders(authorization)` — normalizes Bearer prefix
 
-Value parsers: `readString`, `readStringArray`, `readSpeechExamples` (handles `mapValue.fields` + legacy `trigger`/`emotion` aliases).
+Value parsers: `readString`, `readStringArray`, `readSpeechExamples` (handles `mapValue.fields`; skips entries without `phrase` + `context`).
 
 Exports:
 - `getPersona(personaId, requestingUid, authorization)` → `PersonaDoc | null` — ownership check returns `null` on mismatch.
@@ -302,7 +305,7 @@ Exports:
 
 - `checkRequestRate(uid)` — per-UID **token bucket**: `RATE_LIMIT_PER_MINUTE` (default 10), `RATE_LIMIT_BURST` (default 5). Returns 429 + `Retry-After` on reject.
 - `acquireStreamSlot(uid)` / `releaseStreamSlot(uid)` — **concurrency cap**: `RATE_LIMIT_CONCURRENCY_PER_UID` (default 2) + `RATE_LIMIT_CONCURRENCY_GLOBAL` (default 10). Returns 503 when saturated.
-- In-process (a fresh Map per cold start). Fine for a personal project; replace with a Redis-backed implementation for multi-instance scale.
+- Backend: shared **Upstash Redis** when `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set (fixed one-minute window; `RATE_LIMIT_BURST` is not applied in this mode). Otherwise, or after a Redis error, it falls back to the in-process limiter (a fresh Map per cold start).
 
 ---
 
@@ -323,7 +326,7 @@ Client (`components/Chat.tsx`) `parseSseEvent()` splits on `\n\n`, extracts even
 
 ## 12. History Persistence & Realtime Sync
 
-- **On mount / persona change:** `onSnapshot` on `conversations/{personaId}/messages`, ordered createdAt DESC, limited to latest 40. Subsequent snapshots apply incremental `DocumentChange`s (added/modified/removed) via `reconcileMessages` — no re-fetch.
+- **On mount / persona change:** the latest 40 messages are read once (`getDocs`), then `onSnapshot` listens to every message with `createdAt >=` the oldest loaded one, **with no limit** (a limited window would report its oldest message as `removed` each time a new one arrives). Snapshots apply incremental `DocumentChange`s via `reconcileMessages`, which inserts new messages in `createdAt` order.
 - **Pagination:** scroll up → one-shot cursor query (`startAfter(cursor)`, page size 40). Scroll position preserved via `distanceFromBottom` + `useLayoutEffect` so the prepend doesn't jump the view.
 - **On Send:** user message is written via SDK *before* the LLM request; optimistic local update shows it immediately. The realtime subscription echoes it back as `added`; `reconcileMessages` upserts by id (no duplicate).
 - **On stream completion:** the route persists the assistant reply via `appendConversationMessage`; client saw `done` already, so the subscription's `added` echo replaces the optimistic copy.
@@ -340,7 +343,7 @@ Four layers:
 
 1. **Firebase Auth** — ID tokens verified server-side via the auth adapter; the resulting uid drives every downstream check.
 2. **Server-side ownership** — `getPersona(personaId, requestingUid)` returns `null` on mismatch → route maps to **404** (not 403) so another user's persona existence isn't leaked.
-3. **Firestore Security Rules** (`firestore.rules`) — gate all client SDK reads/writes. Each user can only access their own `personas`, `memories`, `conversations/{personaId}/messages`. **Must be deployed manually** (`firebase deploy --only firestore:rules`) or the database is world-readable/writable.
+3. **Firestore Security Rules** (`firestore.rules`) — gate all client SDK reads/writes. Each user can only access their own `users/{uid}` profile, `personas`, `memories`, `conversations/{personaId}/messages`. **Must be deployed manually** (`firebase deploy --only firestore:rules`) or the database is world-readable/writable.
 4. **Rate limiting** — token bucket + concurrency cap (see §10).
 
 ---
@@ -391,8 +394,8 @@ Unit tests live in `tests/` and run with Vitest (`npm test`). CI (`.github/workf
 
 ## 16. Known Gaps (technical)
 
-- **Embeddings / retrieval** — `listMemoriesForPersona` is list-all-then-filter; fine for tens of memories, needs structured query or embeddings at hundreds.
-- **Few-shot exemplars** — no example Q/A pairs in the prompt; adding 2–3 "they would have said…" examples improves fidelity on small local models.
-- **Cross-instance rate limiting** — in-process; becomes per-cold-start on Vercel.
+- **Memory retrieval** — `listMemoriesForPersona` is a structured query (userId + personaId, newest first) capped at 20, so older memories never reach the prompt. Needs relevance ranking / embeddings once there are hundreds.
+- **Few-shot exemplars** — up to 3 demos are synthesised from `speechExamples` (situation → phrase → reaction). They always open with the catchphrase, and there are no real user-supplied Q/A pairs yet.
+- **Cross-instance rate limiting** — shared via Upstash Redis when configured; without it (or after a Redis error, until restart) limits are per-instance.
 - **Streaming partial saves** — reload mid-stream loses the partial reply (matches intuition).
-- **Realtime coverage of older pages** — `onSnapshot` only covers the latest 40 messages.
+- **Realtime coverage of older pages** — `onSnapshot` covers the first loaded page plus everything newer; pages loaded by scrolling up are static.

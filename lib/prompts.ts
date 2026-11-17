@@ -92,17 +92,6 @@ ${examplesFormatted}
 Few-shot demonstrations:
 ${demosFormatted}`
     );
-  } else if (persona.oftenSaid && persona.oftenSaid.length > 0) {
-    // Legacy fallback for personas stored without structured speechExamples.
-    const legacyList = persona.oftenSaid
-      .map((q, i) => `  ${i + 1}. "${q.trim()}"`)
-      .join("\n");
-
-    sections.push(
-      `== Unstructured phrases they used (Legacy) ==
-The user noted these as things this person sometimes said; treat them as vocabulary and speech-habit evidence, not lines to recite. Use one only when the topic, tone, and flow make it natural.
-${legacyList}`
-    );
   }
 
   // ----- 4. General speaking style -----
@@ -110,10 +99,6 @@ ${legacyList}`
     sections.push(
       `== General speaking style ==\nBroad tendencies: ${persona.howTheySpoke.join(", ")}. Convey this demeanor naturally; don't caricature it in every message.`
     );
-  }
-
-  if (persona.traits?.trim()) {
-    sections.push(`== How they spoke (notes) ==\n${persona.traits.trim()}`);
   }
 
   // ----- 5. Biographical context & memories -----
