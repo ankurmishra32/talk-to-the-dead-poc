@@ -103,10 +103,64 @@ export const ollamaAdapter: LlmAdapter = {
 
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
+        // Handles one NDJSON record. Returns true once the stream is finished
+        // (done or error), so callers stop reading.
+        const handleLine = (line: string): boolean => {
+          const trimmed = line.trim();
+          if (!trimmed) return false;
+          let parsed: {
+            message?: { content?: string };
+            done?: boolean;
+            error?: string;
+          };
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch {
+            // Malformed NDJSON line — skip. Ollama should never emit these
+            // but if it does, dropping them is safer than crashing the stream.
+            return false;
+          }
+          if (parsed.error) {
+            logger.error(`Ollama error: ${parsed.error}`);
+            try {
+              controller.enqueue(sseError(USER_MSG.streamError));
+              controller.close();
+            } catch {
+              // already closed
+            }
+            resolveFinal(totalReply);
+            resolveCompleted(false);
+            return true;
+          }
+          // The done record can carry the last tokens too (some versions and
+          // proxies put them there), so take its content before finishing.
+          const delta = parsed.message?.content ?? "";
+          if (delta) {
+            totalReply += delta;
+            controller.enqueue(sseDelta(delta));
+          }
+          if (parsed.done) {
+            try {
+              controller.enqueue(sseDone(totalReply));
+              controller.close();
+            } catch {
+              // already closed
+            }
+            resolveFinal(totalReply);
+            resolveCompleted(true);
+            return true;
+          }
+          return false;
+        };
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) {
+              // The last record may lack a trailing newline; it's still in
+              // the buffer, so handle it before deciding the reply was cut off.
+              buffer += decoder.decode();
+              if (handleLine(buffer)) return;
               // A normal Ollama response ends with a done record. Without
               // one, the accumulated text may be a truncated reply.
               try {
@@ -123,47 +177,7 @@ export const ollamaAdapter: LlmAdapter = {
             const lines = buffer.split("\n");
             buffer = lines.pop() ?? "";
             for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed) continue;
-              try {
-                const parsed = JSON.parse(trimmed) as {
-                  message?: { content?: string };
-                  done?: boolean;
-                  error?: string;
-                };
-                if (parsed.error) {
-                  logger.error(`Ollama error: ${parsed.error}`);
-                  try {
-                    controller.enqueue(sseError(USER_MSG.streamError));
-                    controller.close();
-                  } catch {
-                    // already closed
-                  }
-                  resolveFinal(totalReply);
-                  resolveCompleted(false);
-                  return;
-                }
-                if (parsed.done) {
-                  try {
-                    controller.enqueue(sseDone(totalReply));
-                    controller.close();
-                  } catch {
-                    // already closed
-                  }
-                  resolveFinal(totalReply);
-                  resolveCompleted(true);
-                  return;
-                }
-                const delta = parsed.message?.content ?? "";
-                if (delta) {
-                  totalReply += delta;
-                  controller.enqueue(sseDelta(delta));
-                }
-              } catch {
-                // Malformed NDJSON line — skip. Ollama should never
-                // emit these but if it does, dropping them is safer
-                // than crashing the stream.
-              }
+              if (handleLine(line)) return;
             }
           }
         } catch (err) {

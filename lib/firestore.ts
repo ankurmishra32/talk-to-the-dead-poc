@@ -42,15 +42,14 @@ function getApiKey(): string {
 }
 
 function authenticatedHeaders(authorization: string): HeadersInit {
-  const token = authorization.trim();
+  // The route accepts a Bearer header (any case, like the auth check in
+  // lib/auth/firebase.server.ts) or a raw token; Firestore REST needs
+  // exactly "Bearer <token>".
+  const token = authorization.replace(/^\s*bearer\s+/i, "").trim();
   if (!token) {
     throw new Error("Missing Firebase ID token for Firestore request.");
   }
-  return {
-    // The route accepts either a standard Bearer header or a raw token;
-    // Firestore REST requires the former.
-    Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
-  };
+  return { Authorization: `Bearer ${token}` };
 }
 
 type FirestoreValueField = {
@@ -109,13 +108,11 @@ export function readSpeechExamples(
     .map((entry): SpeechExample | null => {
       const mapFields = entry?.mapValue?.fields;
       if (!mapFields) return null;
-      const phrase = mapFields.phrase?.stringValue;
-      const context = mapFields.context?.stringValue;
+      const phrase = mapFields.phrase?.stringValue?.trim();
+      const context = mapFields.context?.stringValue?.trim();
+      // Whitespace-only counts as missing, so it never reaches the prompt as "".
       if (!phrase || !context) return null;
-      const example: SpeechExample = {
-        phrase: phrase.trim(),
-        context: context.trim(),
-      };
+      const example: SpeechExample = { phrase, context };
       const meaning = mapFields.meaning?.stringValue;
       if (meaning && meaning.trim()) {
         example.meaning = meaning.trim();
@@ -153,8 +150,9 @@ export async function getPersona(
   if (!res.ok) {
     throw new Error(`Firestore getPersona failed: ${res.status} ${await res.text()}`);
   }
-  const data = (await res.json()) as FirestoreValue;
-  const fields = data.fields;
+  const data = (await res.json()) as Partial<FirestoreValue>;
+  // A document with no fields at all comes back without `fields`.
+  const fields = data.fields ?? {};
   const name = readString(fields, "name");
   const ownerId = readString(fields, "userId");
   if (!name || !ownerId) {
@@ -227,7 +225,7 @@ export async function listMemoriesForPersona(
     .map((result) => result.document)
     .filter((document): document is FirestoreValue => document !== undefined)
     .map((d) => {
-      const fields = d.fields;
+      const fields = d.fields ?? {};
       const text = readString(fields, "text");
       const createdAt = fields.createdAt?.timestampValue ?? null;
       return { text, createdAt };

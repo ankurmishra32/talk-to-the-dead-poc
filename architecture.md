@@ -306,7 +306,7 @@ Exports:
 
 - `checkRequestRate(uid)` — per-UID **token bucket**: `RATE_LIMIT_PER_MINUTE` (default 10), `RATE_LIMIT_BURST` (default 5). Returns 429 + `Retry-After` on reject.
 - `acquireStreamSlot(uid)` / `releaseStreamSlot(uid)` — **concurrency cap**: `RATE_LIMIT_CONCURRENCY_PER_UID` (default 2) + `RATE_LIMIT_CONCURRENCY_GLOBAL` (default 10). Returns 503 when saturated.
-- Backend: shared **Upstash Redis** when `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set (fixed one-minute window; `RATE_LIMIT_BURST` is not applied in this mode). Otherwise, or after a Redis error, it falls back to the in-process limiter (a fresh Map per cold start).
+- Backend: shared **Upstash Redis** when `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set. Requests must fit both a one-minute window (`RATE_LIMIT_PER_MINUTE`) and a burst window sized to `RATE_LIMIT_BURST` (burst ÷ rate). Stream-slot keys get their 5-minute TTL only when created (never refreshed), so slots leaked by a crashed instance expire; counters never go below 0, and each slot is released in the backend that granted it. Without Redis, or for 30 s after a Redis error (then Redis is retried), it uses the in-process limiter (a fresh Map per cold start).
 
 ---
 

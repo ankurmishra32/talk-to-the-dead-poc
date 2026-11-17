@@ -119,6 +119,16 @@ export default function SignupPage() {
     }
   };
 
+  // Until auth state is known, don't flash the account step at a user who is
+  // already signed in (they belong on the profile step).
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--color-surface)" }}>
+        <p style={{ color: "var(--color-text-muted)" }}>{strings.dashboard.loading}</p>
+      </div>
+    );
+  }
+
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"

@@ -25,7 +25,9 @@ import {
   isPersistedId,
   mapMessageDocs,
   reconcileMessages,
-  settledReplies,
+  applySettledReplies,
+  matchSettledReplies,
+  prependOlder,
   swapMessageId,
   trimHistory,
   type PendingReply,
@@ -182,18 +184,22 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
             const changes = snap.docChanges();
             // Computed outside the state updater (which StrictMode may run
             // twice) so the ref is only updated once.
-            const settled = settledReplies(changes, pendingRepliesRef.current);
+            const settled = matchSettledReplies(changes, pendingRepliesRef.current);
             if (settled.length > 0) {
+              const done = new Set(settled.map((p) => p.localId));
               pendingRepliesRef.current = pendingRepliesRef.current.filter(
-                (p) => !settled.includes(p.localId)
+                (p) => !done.has(p.localId)
               );
             }
-            setMessages((prev) => {
-              const next = reconcileMessages(prev, changes, dirtyIdsRef.current);
-              return settled.length > 0
-                ? next.filter((m) => !m.id || !settled.includes(m.id))
-                : next;
-            });
+            // Saved copies take their temporary copy's place first, so the
+            // reconcile below updates them in position instead of inserting.
+            setMessages((prev) =>
+              reconcileMessages(
+                applySettledReplies(prev, settled),
+                changes,
+                dirtyIdsRef.current
+              )
+            );
           },
           (err) => {
             if (cancelled) return;
@@ -259,7 +265,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       );
       const snap = await getDocs(q);
       const older = mapMessageDocs(snap.docs);
-      setMessages((prev) => [...older, ...prev]);
+      setMessages((prev) => prependOlder(prev, older));
       setCursor(snap.docs[snap.docs.length - 1] ?? null);
       setHasMore(snap.docs.length === PAGE_SIZE);
     } catch (err) {

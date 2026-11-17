@@ -296,7 +296,13 @@ describe("settledReplies", () => {
 
   it("settles a stopped reply when the server saved a few more tokens", () => {
     const pending = [{ localId: "local-reply-1", text: "hello" }];
-    expect(settledReplies([added("x", "hello there")], pending)).toEqual(["local-reply-1"]);
+    const saved = change("added", snap("x", { role: "assistant", content: "hello there", interrupted: true }));
+    expect(settledReplies([saved], pending)).toEqual(["local-reply-1"]);
+  });
+
+  it("does not prefix-match a completed (not interrupted) reply", () => {
+    const pending = [{ localId: "local-reply-1", text: "hello" }];
+    expect(settledReplies([added("x", "hello there")], pending)).toEqual([]);
   });
 
   it("ignores user docs, modified docs, and unrelated text", () => {

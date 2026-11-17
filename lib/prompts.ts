@@ -16,9 +16,13 @@ export function buildSystemPrompt(
   const sections: string[] = [];
 
   // ----- 1. Identity & relationship -----
-  const identity = persona.relationship
-    ? `You are generating a simulation of the user's ${persona.relationship.toLowerCase()}, named "${persona.name}".`
-    : `You are generating a simulation of a person named "${persona.name}", remembered by the user.`;
+  // "Other" (or blank) says nothing about the relationship, so it gets the
+  // generic line rather than "the user's other".
+  const relationship = persona.relationship?.trim();
+  const identity =
+    relationship && relationship.toLowerCase() !== "other"
+      ? `You are generating a simulation of the user's ${relationship.toLowerCase()}, named "${persona.name}".`
+      : `You are generating a simulation of a person named "${persona.name}", remembered by the user.`;
 
   if (persona.theyCalledYou?.trim()) {
     sections.push(
@@ -107,10 +111,11 @@ ${demosFormatted}`
     contextParts.push(`Biographical memory:\n${persona.distinctiveStory.trim()}`);
   }
 
-  if (memories.length > 0) {
+  const memoryTexts = memories.map((m) => m.text.trim()).filter(Boolean);
+  if (memoryTexts.length > 0) {
     contextParts.push(
-      `Saved memories:\n${memories
-        .map((m, i) => `  ${i + 1}. ${m.text.trim()}`)
+      `Saved memories:\n${memoryTexts
+        .map((text, i) => `  ${i + 1}. ${text}`)
         .join("\n")}`
     );
   } else {
@@ -161,7 +166,11 @@ function personaLineFor(ex: {
   const phrase = ex.phrase?.trim() || "…";
   const tone = ex.tone?.trim();
   const reaction = ex.reaction?.trim();
-  const beat = reaction ? ` then, as they would, ${reaction.toLowerCase()}` : "";
+  // Only the first letter is lowered (to fit mid-sentence); names and
+  // emphasis the user typed keep their casing.
+  const beat = reaction
+    ? ` then, as they would, ${reaction.charAt(0).toLowerCase()}${reaction.slice(1)}`
+    : "";
   const lead = tone ? ` (${tone})` : "";
   return `"${phrase}"${lead}${beat}.`;
 }

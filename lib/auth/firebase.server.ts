@@ -25,9 +25,8 @@ function getApiKey(): string {
 async function verifyAccessToken(token: string): Promise<AuthUser> {
   // Tolerate both "Bearer x" and bare "x" so the route can pass the
   // raw Authorization header without preprocessing.
-  const idToken = token.startsWith("Bearer ")
-    ? token.slice("Bearer ".length).trim()
-    : token.trim();
+  // The auth scheme is case-insensitive (RFC 7235), so accept "bearer" too.
+  const idToken = token.replace(/^\s*bearer\s+/i, "").trim();
   if (!idToken) {
     throw new Error("Empty bearer token.");
   }

@@ -9,7 +9,7 @@ import type { LlmAdapter } from "./types";
 import { lmStudioAdapter } from "./lm-studio";
 import { ollamaAdapter } from "./ollama";
 
-const PROVIDER = process.env.LLM_PROVIDER || "lm-studio";
+const PROVIDER = (process.env.LLM_PROVIDER || "lm-studio").trim().toLowerCase();
 
 function getLlm(): LlmAdapter {
   switch (PROVIDER) {

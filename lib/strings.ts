@@ -107,6 +107,7 @@ export const strings = {
     saving: "Saving...",
     signOutRequired: "Please sign in to save.",
     saveFailed: "Couldn't save this person. Please try again.",
+    nameRequired: "Please enter their name first.",
     deleteFailed: "Couldn't delete this person.",
     missingContext: (phrase: string) =>
       `Please specify when they would say "${phrase}" (the situation or trigger).`,

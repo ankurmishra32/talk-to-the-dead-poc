@@ -147,10 +147,23 @@ const memoryRelease = (uid: string): void => {
 const WINDOW_MS = 60_000;
 const RATE_KEY_TTL_S = 120;
 const CONCURRENCY_KEY_TTL_S = 300;
+// After a Redis error, use the in-memory limiter for this long, then try
+// Redis again (instead of staying on memory until the instance restarts).
+const REDIS_RETRY_MS = 30_000;
+
+// Fixed-window counter: increments `key` and sets its TTL when the key is
+// created. Returns the new count.
+async function incrWindow(redis: Redis, key: string, ttlSec: number): Promise<number> {
+  const count = await redis.incr(key);
+  if (count === 1) {
+    await redis.expire(key, ttlSec).catch(() => {});
+  }
+  return count;
+}
 
 class RedisLimiterBackend {
   private redis: Redis;
-  private down = false;
+  private downUntil = 0;
 
   constructor() {
     const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -161,80 +174,88 @@ class RedisLimiterBackend {
     this.redis = new Redis({ url, token });
   }
 
-  private isRateEnabled(): boolean {
-    return !limitsDisabled();
-  }
-
-  private isConcurrencyEnabled(): boolean {
-    const perUid = CONCURRENCY_PER_UID();
-    const global = CONCURRENCY_GLOBAL();
-    return perUid > 0 || global > 0;
-  }
-
+  // Two fixed windows approximate the in-memory token bucket:
+  //   - per minute: at most RATE_LIMIT_PER_MINUTE requests;
+  //   - burst: at most RATE_LIMIT_BURST requests per (burst / rate) — the
+  //     time the bucket takes to refill — so a burst can't use the whole
+  //     minute's allowance back-to-back.
   async checkRate(uid: string): Promise<{ allowed: boolean; retryAfterSec: number }> {
-    if (!this.isRateEnabled()) return { allowed: true, retryAfterSec: 0 };
+    if (limitsDisabled()) return { allowed: true, retryAfterSec: 0 };
 
+    const perMinute = PER_MINUTE();
+    const burst = BURST();
     const now = Date.now();
-    const window = Math.floor(now / WINDOW_MS);
-    const key = `rl:rate:${uid}:${window}`;
+    const burstWindowMs = Math.max(1_000, Math.round((burst * WINDOW_MS) / perMinute));
 
-    // Fixed window: INCR then, on the first hit, set a TTL so the key
-    // doesn't accumulate. The window changes every minute, so old keys are
-    // simply never touched again and expire via TTL.
-    const count = await this.redis.incr(key);
-    if (count === 1) {
-      // Best effort — an EXPIRE failure is not fatal.
-      await this.redis.expire(key, RATE_KEY_TTL_S).catch(() => {});
+    const minuteCount = await incrWindow(
+      this.redis,
+      `rl:rate:${uid}:${Math.floor(now / WINDOW_MS)}`,
+      RATE_KEY_TTL_S
+    );
+    const burstCount = await incrWindow(
+      this.redis,
+      `rl:burst:${uid}:${Math.floor(now / burstWindowMs)}`,
+      Math.ceil((2 * burstWindowMs) / 1000)
+    );
+
+    const waits: number[] = [];
+    if (minuteCount > perMinute) waits.push(WINDOW_MS - (now % WINDOW_MS));
+    if (burstCount > burst) waits.push(burstWindowMs - (now % burstWindowMs));
+    if (waits.length > 0) {
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(Math.max(...waits) / 1000)) };
     }
-
-    if (count > PER_MINUTE()) {
-      const retryAfterSec = Math.max(1, Math.ceil((WINDOW_MS - (now % WINDOW_MS)) / 1000));
-      return { allowed: false, retryAfterSec };
-    }
-
     return { allowed: true, retryAfterSec: 0 };
   }
 
   async acquire(uid: string): Promise<{ acquired: boolean }> {
     const perUid = CONCURRENCY_PER_UID();
     const global = CONCURRENCY_GLOBAL();
-    if (perUid <= 0 && global <= 0) return { acquired: true };
-
     const perKey = `rl:conc:${uid}`;
     const globalKey = "rl:conc:global";
 
-    const perCount = await this.redis.incr(perKey);
-    const globalCount = await this.redis.incr(globalKey);
+    // The TTL is set only when a key is created, never refreshed. A slot
+    // leaked by a crashed instance therefore clears when the key expires,
+    // instead of being kept alive forever by other users' traffic.
+    const perCount = await incrWindow(this.redis, perKey, CONCURRENCY_KEY_TTL_S);
+    let globalCount: number;
+    try {
+      globalCount = await incrWindow(this.redis, globalKey, CONCURRENCY_KEY_TTL_S);
+    } catch (err) {
+      // Undo the per-uid increment so it doesn't leak, then let the caller
+      // fall back to the in-memory limiter.
+      await this.decrFloored(perKey).catch(() => {});
+      throw err;
+    }
 
     const overPerUid = perUid > 0 && perCount > perUid;
     const overGlobal = global > 0 && globalCount > global;
-
     if (overPerUid || overGlobal) {
-      // Roll back both counters so accounting stays balanced.
-      await this.redis.decr(perKey);
-      await this.redis.decr(globalKey);
+      await this.decrFloored(perKey);
+      await this.decrFloored(globalKey);
       return { acquired: false };
     }
-
-    // Refresh TTL on the held slots (best effort).
-    await this.redis.expire(perKey, CONCURRENCY_KEY_TTL_S).catch(() => {});
-    await this.redis.expire(globalKey, CONCURRENCY_KEY_TTL_S).catch(() => {});
-
     return { acquired: true };
   }
 
   async release(uid: string): Promise<void> {
-    await this.redis.decr(`rl:conc:${uid}`);
-    await this.redis.decr("rl:conc:global");
+    await this.decrFloored(`rl:conc:${uid}`);
+    await this.decrFloored("rl:conc:global");
   }
 
-  // Marks the backend as down after a failure so we stop hammering it.
+  // Decrements without going below 0. A key can expire while a long stream
+  // is running; a plain decrement would then go to -1 and grant one slot
+  // above the cap.
+  private async decrFloored(key: string): Promise<void> {
+    const value = await this.redis.decr(key);
+    if (value < 0) await this.redis.incr(key);
+  }
+
   markDown(): void {
-    this.down = true;
+    this.downUntil = Date.now() + REDIS_RETRY_MS;
   }
 
   isDown(): boolean {
-    return this.down;
+    return Date.now() < this.downUntil;
   }
 }
 
@@ -242,64 +263,78 @@ class RedisLimiterBackend {
 // Selection layer (matches the exported API used by pages/api/chat.ts)
 // ---------------------------------------------------------------------------
 
-// Redis gains are only realized when a shared store is actually configured.
-// We pick lazily on first use (env is fully loaded by then) and fall back to
-// the in-memory limiter if Redis is absent or fails.
-let usingRedis = false;
-let redisBackend: RedisLimiterBackend | null = null;
+// Created lazily on first use of ANY limiter call (env is fully loaded by
+// then). null when Redis isn't configured or failed to initialise.
+let redisBackend: RedisLimiterBackend | null | undefined;
 
-function redisConfigured(): boolean {
-  return Boolean(process.env.UPSTASH_REDIS_REST_URL);
+function getRedis(): RedisLimiterBackend | null {
+  if (redisBackend === undefined) {
+    redisBackend = null;
+    if (process.env.UPSTASH_REDIS_REST_URL) {
+      try {
+        redisBackend = new RedisLimiterBackend();
+        logger.info("Using shared Upstash Redis rate limiter");
+      } catch (err) {
+        logger.warn("Failed to init Upstash Redis limiter; using in-memory fallback", err);
+      }
+    }
+  }
+  return redisBackend && !redisBackend.isDown() ? redisBackend : null;
 }
 
-async function checkRate(uid: string): Promise<{ allowed: boolean; retryAfterSec: number }> {
-  if (redisConfigured() && !usingRedis) {
-    try {
-      redisBackend = new RedisLimiterBackend();
-      usingRedis = true;
-      logger.info("Using shared Upstash Redis rate limiter");
-    } catch (err) {
-      logger.warn("Failed to init Upstash Redis limiter; using in-memory fallback", err);
-      usingRedis = false;
-    }
-  }
+// Slots each uid currently holds in Redis, so a slot is released in the
+// backend that granted it even if Redis was marked down in between.
+const redisSlots = new Map<string, number>();
 
-  if (usingRedis && redisBackend && !redisBackend.isDown()) {
+async function checkRate(uid: string): Promise<{ allowed: boolean; retryAfterSec: number }> {
+  const redis = getRedis();
+  if (redis) {
     try {
-      return await redisBackend.checkRate(uid);
+      return await redis.checkRate(uid);
     } catch (err) {
       logger.error("Redis rate check failed; falling back to in-memory limiter", err);
-      redisBackend.markDown();
+      redis.markDown();
     }
   }
-
   return memoryRate(uid);
 }
 
 async function acquire(uid: string): Promise<{ acquired: boolean }> {
-  if (usingRedis && redisBackend && !redisBackend.isDown()) {
+  const perUid = CONCURRENCY_PER_UID();
+  const global = CONCURRENCY_GLOBAL();
+  if (perUid <= 0 && global <= 0) return { acquired: true };
+
+  const redis = getRedis();
+  if (redis) {
     try {
-      return await redisBackend.acquire(uid);
+      const result = await redis.acquire(uid);
+      if (result.acquired) redisSlots.set(uid, (redisSlots.get(uid) ?? 0) + 1);
+      return result;
     } catch (err) {
       logger.error("Redis acquire failed; falling back to in-memory limiter", err);
-      redisBackend.markDown();
+      redis.markDown();
     }
   }
-
   return memoryAcquire(uid);
 }
 
 async function release(uid: string): Promise<void> {
-  if (usingRedis && redisBackend && !redisBackend.isDown()) {
-    try {
-      await redisBackend.release(uid);
-    } catch (err) {
-      logger.error("Redis release failed; falling back to in-memory limiter", err);
-      redisBackend.markDown();
+  const held = redisSlots.get(uid) ?? 0;
+  if (held > 0) {
+    if (held === 1) redisSlots.delete(uid);
+    else redisSlots.set(uid, held - 1);
+    // Released in Redis even if it was marked down since; if Redis is still
+    // unreachable the key's TTL recovers the slot.
+    if (redisBackend) {
+      try {
+        await redisBackend.release(uid);
+      } catch (err) {
+        logger.error("Redis release failed; slot will be recovered by its TTL", err);
+        redisBackend.markDown();
+      }
     }
     return;
   }
-
   memoryRelease(uid);
 }
 

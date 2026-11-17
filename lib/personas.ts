@@ -25,7 +25,7 @@ export function mapPersonaDoc(
   if (data.userId !== ownerId) return null;
   return {
     id: d.id,
-    name: data.name ?? "(unnamed)",
+    name: data.name?.trim() || "(unnamed)",
     ownerId: data.userId ?? null,
     relationship: data.relationship ?? null,
     theyCalledYou: data.theyCalledYou ?? null,
@@ -39,10 +39,9 @@ export function mapPersonaDoc(
 /**
  * Applies a docChanges batch to the local persona list. Same
  * incremental pattern as reconcileMessages — added/modified upsert by
- * id, removed drops by id. Order is preserved: new items append to the
- * end (matching the existing list's insertion order, which is
- * desc-by-createdAt because that's how Firestore served the first
- * snap).
+ * id, removed drops by id. The list is newest-first (desc by createdAt,
+ * as Firestore served the first snap), so a newly added persona goes to
+ * the top.
  */
 export function reconcilePersonas(
   prev: PersonaItem[],
@@ -70,7 +69,7 @@ export function reconcilePersonas(
     }
     const idx = next.findIndex((p) => p.id === id);
     if (idx === -1) {
-      next = [...next, incoming];
+      next = [incoming, ...next];
     } else {
       next = [...next];
       next[idx] = incoming;

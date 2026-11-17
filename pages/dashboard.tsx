@@ -18,6 +18,10 @@ type Persona = {
 export default function Dashboard() {
   const { user, loading } = useAuth();
   const [persona, setPersona] = useState<Persona | null>(null);
+  // uid whose profile check has finished. Until then the loading screen is
+  // shown, so a user without a profile never sees the persona list flash
+  // before being sent to /signup.
+  const [profileCheckedFor, setProfileCheckedFor] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -28,18 +32,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (loading || !user) return;
-    getUserProfile(user.uid)
+    const uid = user.uid;
+    getUserProfile(uid)
       .then((profile) => {
-        if (!profile) router.replace("/signup");
+        if (!profile) {
+          router.replace("/signup");
+          return;
+        }
+        setProfileCheckedFor(uid);
       })
       .catch((err) => {
         // Don't bounce the user on a transient read failure; the guard
         // re-runs on the next auth change / page load.
         logger.error("Profile lookup failed", err);
+        setProfileCheckedFor(uid);
       });
   }, [user, loading, router]);
 
-  if (loading || !user) {
+  if (loading || !user || profileCheckedFor !== user.uid) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--color-surface)" }}>
         <p style={{ color: "var(--color-text-muted)" }}>{strings.dashboard.loading}</p>

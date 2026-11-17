@@ -28,6 +28,19 @@ type Response =
 // history limits is trimmed (not rejected), so this only guards against abuse.
 const MAX_RAW_MESSAGES = 200;
 
+// How long to wait for the adapter's finalReply/completed after its stream
+// has ended. Both adapters settle them immediately; this only guards against
+// one that doesn't, so a stuck promise can't leak the user's stream slot.
+const SETTLE_TIMEOUT_MS = 5_000;
+
+function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function isValidMessage(m: unknown): m is ChatMessage {
   if (!m || typeof m !== "object") return false;
   const msg = m as { role?: unknown; content?: unknown };
@@ -45,6 +58,21 @@ export default async function handler(
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  // Detect the client going away (Stop button, closed tab, navigation) from
+  // the start, so a disconnect during auth / Firestore reads is noticed too.
+  // `req` "close" is not usable for this: on Node 16+ it fires as soon as the
+  // request body has been read, not when the connection drops. `res` "close"
+  // fires when the connection closes; if we haven't ended the response yet,
+  // the client disconnected.
+  const ac = new AbortController();
+  let clientGone = false;
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      ac.abort();
+    }
+  });
 
   const body = req.body as Partial<Body> | undefined;
   if (
@@ -118,19 +146,8 @@ export default async function handler(
   // to the response one chunk at a time so a transport error mid-stream
   // can emit an `event: error` event before closing, matching the
   // pre-refactor behavior.
-  const ac = new AbortController();
-  // Detect the client going away (Stop button, closed tab, navigation).
-  // `req` "close" is not usable for this: on Node 16+ it fires as soon as the
-  // request body has been read, not when the connection drops. `res` "close"
-  // fires when the connection closes; if the response hasn't been ended by
-  // us yet, the client disconnected mid-reply.
-  let clientGone = false;
-  res.on("close", () => {
-    if (!res.writableEnded) {
-      clientGone = true;
-      ac.abort();
-    }
-  });
+  // Nobody to answer: skip generation entirely.
+  if (clientGone) return;
 
   // Concurrency cap on in-flight streams. Once the rate check is
   // past, what protects the local model server is how many simultaneous streams this
@@ -139,6 +156,10 @@ export default async function handler(
   const slot = await acquireStreamSlot(uid);
   if (!slot.acquired) {
     return res.status(503).json({ error: "Server is busy. Please wait a moment and try again." });
+  }
+  if (clientGone) {
+    await releaseSlot(uid);
+    return;
   }
 
   let upstream: ReadableStream<Uint8Array>;
@@ -150,7 +171,7 @@ export default async function handler(
     finalReply = llmStream.finalReply;
     completed = llmStream.completed;
   } catch (err) {
-    await releaseStreamSlot(uid);
+    await releaseSlot(uid);
     logger.error("Could not reach LLM provider", err);
     return res.status(502).json({ error: "Something went wrong on our end. Please try again." });
   }
@@ -172,6 +193,9 @@ export default async function handler(
   }
 
   const reader = upstream.getReader();
+  // Set when the adapter's stream itself errors (adapters normally report
+  // problems as `event: error` instead). Its reply can't be trusted then.
+  let streamFailed = false;
   try {
     while (true) {
       const { value, done } = await reader.read();
@@ -184,11 +208,14 @@ export default async function handler(
       }
     }
   } catch (err) {
+    streamFailed = true;
     logger.error("Stream interrupted", err);
-    try {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: "The reply was cut off. Please try again." })}\n\n`);
-    } catch {
-      // Client already disconnected.
+    if (!clientGone) {
+      try {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: "The reply was cut off. Please try again." })}\n\n`);
+      } catch {
+        // Client already disconnected.
+      }
     }
   } finally {
     // Await persistence before closing the response so we can emit
@@ -200,7 +227,13 @@ export default async function handler(
     // Firestore REST round-trip on the request hot path; acceptable
     // for a PoC.
     try {
-      const [reply, didComplete] = await Promise.all([finalReply, completed]);
+      const settled = streamFailed
+        ? null
+        : await settleWithin(Promise.all([finalReply, completed]), SETTLE_TIMEOUT_MS);
+      if (!streamFailed && settled === null) {
+        logger.error("LLM adapter did not settle its reply; not saving it");
+      }
+      const [reply, didComplete] = settled ?? ["", false];
       // Save a completed reply, or — when the user stopped it / left — the
       // partial text, flagged `interrupted` so it reloads as a stopped reply.
       // Partial text from an upstream error is not saved: the user sees an
@@ -214,12 +247,14 @@ export default async function handler(
             uid,
             authorization
           );
-          // Client may have disconnected mid-stream; res.write then
-          // throws. Swallow — we still want to release the slot.
-          try {
-            res.write(`event: id\ndata: ${JSON.stringify({ id: messageId })}\n\n`);
-          } catch {
-            // Client already disconnected.
+          // After a disconnect nobody is listening; don't write to the
+          // closed response.
+          if (!clientGone) {
+            try {
+              res.write(`event: id\ndata: ${JSON.stringify({ id: messageId })}\n\n`);
+            } catch {
+              // Client disconnected in the meantime.
+            }
           }
         } catch (err) {
           logger.error("Failed to persist assistant reply", err);
@@ -229,7 +264,17 @@ export default async function handler(
       logger.error("Failed to resolve finalReply", err);
     }
 
-    await releaseStreamSlot(uid);
+    await releaseSlot(uid);
     res.end();
+  }
+}
+
+// Releasing must never stop the response from ending; a failure is logged
+// (the limiter's own TTLs eventually recover the slot).
+async function releaseSlot(uid: string): Promise<void> {
+  try {
+    await releaseStreamSlot(uid);
+  } catch (err) {
+    logger.error("Failed to release stream slot", err);
   }
 }

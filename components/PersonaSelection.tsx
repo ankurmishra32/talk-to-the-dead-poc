@@ -177,6 +177,15 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
     }
     setError(null);
 
+    // The name field's `required` is only enforced while step 1 is on
+    // screen, so check it here too. The server rejects a nameless persona,
+    // which would make every chat with it fail.
+    if (!name.trim()) {
+      setError(strings.persona.nameRequired);
+      setCurrentStep(0);
+      return;
+    }
+
     for (const item of speechExamples) {
       const p = item.phrase.trim();
       const c = item.context.trim();
@@ -262,7 +271,14 @@ export default function PersonaSelection({ onSelect }: { onSelect: (personaData:
   };
 
   // Step navigation.
-  const nextStep = () => setCurrentStep((s) => Math.min(s + 1, 3));
+  const nextStep = () => {
+    if (currentStep === 0 && !name.trim()) {
+      setError(strings.persona.nameRequired);
+      return;
+    }
+    setError(null);
+    setCurrentStep((s) => Math.min(s + 1, 3));
+  };
   const prevStep = () => setCurrentStep((s) => Math.max(s - 1, 0));
 
   // Toggle optional fields for a speech example entry.

@@ -101,10 +101,68 @@ export const lmStudioAdapter: LlmAdapter = {
 
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
+        // Handles one SSE event block. Returns true once the stream is
+        // finished ([DONE] or an error), so callers stop reading.
+        const handleBlock = (block: string): boolean => {
+          const data = eventData(block);
+          if (!data) return false;
+
+          if (data === "[DONE]") {
+            try {
+              controller.enqueue(sseDone(totalReply));
+              controller.close();
+            } catch {
+              // The client may already be disconnected.
+            }
+            resolveFinal(totalReply);
+            resolveCompleted(true);
+            return true;
+          }
+
+          let chunk: {
+            choices?: Array<{ delta?: { content?: string } }>;
+            error?: { message?: string } | string;
+          };
+          try {
+            chunk = JSON.parse(data);
+          } catch {
+            // Ignore non-JSON keep-alives or malformed chunks. The
+            // provider's final [DONE] event still decides completion.
+            return false;
+          }
+          if (chunk.error) {
+            const error =
+              typeof chunk.error === "string"
+                ? chunk.error
+                : chunk.error.message || "LM Studio stream error.";
+            logger.error(`LM Studio stream error: ${error}`);
+            try {
+              controller.enqueue(sseError(USER_MSG.streamError));
+              controller.close();
+            } catch {
+              // The client may already be disconnected.
+            }
+            resolveFinal(totalReply);
+            resolveCompleted(false);
+            return true;
+          }
+
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (delta) {
+            totalReply += delta;
+            controller.enqueue(sseDelta(delta));
+          }
+          return false;
+        };
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) {
+              // The last event may lack its trailing blank line; it's still
+              // in the buffer, so handle it before deciding the reply was cut off.
+              buffer = (buffer + decoder.decode()).replace(/\r\n/g, "\n");
+              if (handleBlock(buffer)) return;
               try {
                 controller.enqueue(sseError(USER_MSG.shortReply));
                 controller.close();
@@ -124,48 +182,7 @@ export const lmStudioAdapter: LlmAdapter = {
             while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
               const block = buffer.slice(0, separatorIndex);
               buffer = buffer.slice(separatorIndex + 2);
-              const data = eventData(block);
-              if (!data) continue;
-
-              if (data === "[DONE]") {
-                try {
-                  controller.enqueue(sseDone(totalReply));
-                  controller.close();
-                } catch {
-                  // The client may already be disconnected.
-                }
-                resolveFinal(totalReply);
-                resolveCompleted(true);
-                return;
-              }
-
-              try {
-                const chunk = JSON.parse(data) as {
-                  choices?: Array<{ delta?: { content?: string } }>;
-                  error?: { message?: string } | string;
-                };
-                if (chunk.error) {
-                  const error =
-                    typeof chunk.error === "string"
-                      ? chunk.error
-                      : chunk.error.message || "LM Studio stream error.";
-                  logger.error(`LM Studio stream error: ${error}`);
-                  controller.enqueue(sseError(USER_MSG.streamError));
-                  controller.close();
-                  resolveFinal(totalReply);
-                  resolveCompleted(false);
-                  return;
-                }
-
-                const delta = chunk.choices?.[0]?.delta?.content;
-                if (delta) {
-                  totalReply += delta;
-                  controller.enqueue(sseDelta(delta));
-                }
-              } catch {
-                // Ignore non-JSON keep-alives or malformed chunks. The
-                // provider's final [DONE] event still decides completion.
-              }
+              if (handleBlock(block)) return;
             }
           }
         } catch (err) {

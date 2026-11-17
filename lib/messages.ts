@@ -45,13 +45,23 @@ export function trimHistory(
     if (!content.trim()) continue;
     const text =
       content.length > limits.maxMessageChars
-        ? `${content.slice(0, limits.maxMessageChars - 1)}…`
+        ? `${sliceCodeUnits(content, limits.maxMessageChars - 1)}…`
         : content;
     if (out.length > 0 && total + text.length > limits.maxTotalChars) break;
     out.push({ role, content: text });
     total += text.length;
   }
   return out.reverse();
+}
+
+/**
+ * `str.slice(0, end)` that never ends on the first half of a surrogate pair
+ * (an emoji), which would leave a broken character.
+ */
+function sliceCodeUnits(str: string, end: number): string {
+  const code = str.charCodeAt(end - 1);
+  const cutsPair = code >= 0xd800 && code <= 0xdbff;
+  return str.slice(0, cutsPair ? end - 1 : end);
 }
 
 /**
@@ -105,29 +115,73 @@ type MessageDocData = {
 export type PendingReply = { localId: string; text: string };
 
 /**
- * Returns the local ids of pending replies whose saved copy is among
- * `changes` (an "added" assistant doc). The saved text starts with what the
- * client showed: equal for a completed reply, possibly a few tokens longer
- * for a stopped one (tokens in flight when the user pressed Stop). Each
- * added doc settles at most one pending reply.
+ * Pairs each pending reply with its saved copy among `changes` (an "added"
+ * assistant doc):
+ * - a completed reply is saved exactly as shown, so it must match exactly;
+ * - a stopped (`interrupted`) reply may be saved with a few more tokens (in
+ *   flight when the user pressed Stop), so its saved text only has to start
+ *   with what was shown. The longest such match wins.
+ * Each doc settles at most one pending reply and vice versa. Requiring exact
+ * matches for completed replies stops a later reply that merely starts with
+ * the same words from settling an older stopped one.
  */
-export function settledReplies(
+export function matchSettledReplies(
   changes: FirestoreChangeLike[],
   pending: PendingReply[]
-): string[] {
+): Array<{ localId: string; docId: string }> {
   if (pending.length === 0) return [];
-  const settled: string[] = [];
+  const pairs: Array<{ localId: string; docId: string }> = [];
+  const used = new Set<string>();
   for (const change of changes) {
     if (change.type !== "added") continue;
     const data = change.doc.data() as MessageDocData;
     if (data.role !== "assistant" || typeof data.content !== "string") continue;
     const content = data.content;
-    const match = pending.find(
-      (p) => !settled.includes(p.localId) && p.text !== "" && content.startsWith(p.text)
-    );
-    if (match) settled.push(match.localId);
+    const candidates = pending.filter((p) => !used.has(p.localId) && p.text !== "");
+    let match = candidates.find((p) => p.text === content);
+    if (!match && data.interrupted === true) {
+      match = candidates
+        .filter((p) => content.startsWith(p.text))
+        .sort((a, b) => b.text.length - a.text.length)[0];
+    }
+    if (match) {
+      used.add(match.localId);
+      pairs.push({ localId: match.localId, docId: change.doc.id });
+    }
   }
-  return settled;
+  return pairs;
+}
+
+/** The local ids of pending replies settled by `changes` (see matchSettledReplies). */
+export function settledReplies(
+  changes: FirestoreChangeLike[],
+  pending: PendingReply[]
+): string[] {
+  return matchSettledReplies(changes, pending).map((p) => p.localId);
+}
+
+/**
+ * Gives each settled temporary message its saved doc's id, in place, so the
+ * following reconcileMessages updates it (content, timestamp, interrupted)
+ * without moving it. Keeping the temporary copy's position is what keeps a
+ * stopped reply right after the message it answers, whatever the clocks say.
+ */
+export function applySettledReplies(
+  prev: ChatMessage[],
+  pairs: Array<{ localId: string; docId: string }>
+): ChatMessage[] {
+  return pairs.reduce((list, p) => swapMessageId(list, p.localId, p.docId), prev);
+}
+
+/**
+ * Prepends an older page, skipping messages already in the list. A message
+ * sharing the oldest loaded message's exact timestamp can arrive both through
+ * the live listener (createdAt >=) and through the next page (startAfter).
+ */
+export function prependOlder(prev: ChatMessage[], older: ChatMessage[]): ChatMessage[] {
+  const known = new Set(prev.map((m) => m.id).filter(Boolean));
+  const fresh = older.filter((m) => !m.id || !known.has(m.id));
+  return fresh.length === 0 ? prev : [...fresh, ...prev];
 }
 
 /**

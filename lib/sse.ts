@@ -15,14 +15,16 @@ export function parseSseEvent(
   block: string
 ): { event: string; data: unknown } | null {
   let eventName = "message";
-  let dataLine = "";
+  const dataLines: string[] = [];
   for (const line of block.split("\n")) {
     if (line.startsWith("event:")) {
       eventName = line.slice(6).trim();
     } else if (line.startsWith("data:")) {
-      dataLine += line.slice(5).trim();
+      dataLines.push(line.slice(5).trim());
     }
   }
+  // Per the SSE spec, multiple data lines are joined with "\n".
+  const dataLine = dataLines.join("\n");
   if (!dataLine) return null;
   try {
     return { event: eventName, data: JSON.parse(dataLine) };

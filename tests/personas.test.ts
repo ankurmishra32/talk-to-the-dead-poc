@@ -74,11 +74,11 @@ describe("reconcilePersonas", () => {
     expect(reconcilePersonas(prev, [], OWNER)).toBe(prev);
   });
 
-  it("appends a newly added persona", () => {
+  it("puts a newly added persona first (the list is newest-first)", () => {
     const prev = prevOf([{ id: "p1", name: "A", ownerId: OWNER }]);
     const changes = [change("added", snap("p2", { name: "B", userId: OWNER }))];
     const next = reconcilePersonas(prev, changes, OWNER);
-    expect(next.map((p) => p.id)).toEqual(["p1", "p2"]);
+    expect(next.map((p) => p.id)).toEqual(["p2", "p1"]);
   });
 
   it("upserts an existing persona by id", () => {

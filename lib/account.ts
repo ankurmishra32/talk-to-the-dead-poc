@@ -110,10 +110,11 @@ export async function deleteAccount(user: User, password: string): Promise<void>
     }
   }
 
-  // 5. User profile
-  await deleteDoc(doc(db, "users", uid)).catch(() => {
-    // May not exist for legacy users — ignore.
-  });
+  // 5. User profile. Deleting a doc that doesn't exist already succeeds, so
+  // any error here is real (permission-denied, offline) and must stop us
+  // before the auth account goes — otherwise the profile (name, phone,
+  // email) would be left behind with nobody able to delete it.
+  await deleteDoc(doc(db, "users", uid));
 
   // --- Auth account ---
   await deleteUser(user);
