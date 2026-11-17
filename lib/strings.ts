@@ -266,6 +266,7 @@ export const strings = {
   messageBubble: {
     editAria: "Edit message",
     deleteAria: "Delete message",
+    stopped: "Stopped",
   },
 
   confirm: {

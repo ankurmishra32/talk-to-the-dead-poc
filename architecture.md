@@ -79,8 +79,8 @@ Two distinct data paths:
 9. **LLM stream** — `llmAdapter.streamChat({ system, messages }, signal)` → `{ stream, finalReply, completed }`.
 10. **SSE headers** — `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, `res.flushHeaders()`.
 11. **Pipe stream** — read chunks from the upstream `ReadableStream`, write raw bytes to `res`.
-12. **Persistence** — after the stream ends, await `finalReply` + `completed`. If `completed === true`, call `appendConversationMessage(...)` (returns the Firestore doc id), emit `event: id { id }`, then `releaseStreamSlot(uid)` + `res.end()`.
-13. **Abort** — `req.on("close", () => ac.abort())` — a client disconnect cancels the LLM stream.
+12. **Persistence** — after the stream ends, await `finalReply` + `completed`. If `completed === true`, call `appendConversationMessage(...)` (returns the Firestore doc id) and emit `event: id { id }`. If the client disconnected first (Stop / closed tab), the partial `finalReply` is saved with `interrupted: true` instead (no `id` event: nobody is listening). Partial text from an upstream error is not saved. Then `releaseStreamSlot(uid)` + `res.end()`.
+13. **Abort** — `res.on("close")` with `!res.writableEnded` marks the client as gone and aborts the LLM fetch, so generation stops. (`req` "close" can't be used: on Node 16+ it fires once the body has been read, before the handler runs.) Writes stop once the client is gone.
 
 The client trims its history with the same `trimHistory` / `HISTORY_LIMITS` before sending, and saves the user's message (with `serverTimestamp()`) **before** calling the route; if that save fails, the message goes back into the composer.
 
@@ -192,7 +192,8 @@ The retired `oftenSaid`, `traits`, and `trigger`/`emotion` aliases are no longer
 | `personaId` | string | Denormalized so rules needn't traverse up |
 | `role` | "user" \| "assistant" | |
 | `content` | string | |
-| `createdAt` | timestamp | |
+| `createdAt` | timestamp | `serverTimestamp()` for user messages; server time for assistant replies |
+| `interrupted` | boolean? | Only `true`, on assistant replies the user stopped mid-stream (partial text) |
 
 Each message is its own document — avoids the 1 MiB limit and enables per-message pagination/edit/delete.
 
@@ -320,7 +321,7 @@ Exports:
 | `event: id` | `{ "id": "<firestore id>" }` | Assistant reply persisted (after `done`) |
 | `event: error` | `{ "error": "..." }` | Upstream error; client stops |
 
-Client (`components/Chat.tsx`) `parseSseEvent()` splits on `\n\n`, extracts event name + JSON data, and drives a live message bubble (append on `delta`, commit on `done`). A Cancel button aborts via `AbortController`, preserving partial text.
+Client (`components/Chat.tsx`) `parseSseEvent()` splits on `\n\n`, extracts event name + JSON data, and drives a live message bubble (append on `delta`). On `done` the reply becomes a regular message under a temporary `local-reply-…` id; on Stop (`AbortController`) the partial text does, marked `interrupted`. The temporary message is replaced when the server's saved copy arrives through the live listener (`settledReplies`: the saved text starts with the shown text) or when `event: id` gives the real id (`swapMessageId`), so a reply shows exactly once.
 
 ---
 
@@ -397,5 +398,5 @@ Unit tests live in `tests/` and run with Vitest (`npm test`). CI (`.github/workf
 - **Memory retrieval** — `listMemoriesForPersona` is a structured query (userId + personaId, newest first) capped at 20, so older memories never reach the prompt. Needs relevance ranking / embeddings once there are hundreds.
 - **Few-shot exemplars** — up to 3 demos are synthesised from `speechExamples` (situation → phrase → reaction). They always open with the catchphrase, and there are no real user-supplied Q/A pairs yet.
 - **Cross-instance rate limiting** — shared via Upstash Redis when configured; without it (or after a Redis error, until restart) limits are per-instance.
-- **Streaming partial saves** — reload mid-stream loses the partial reply (matches intuition).
+- **Partial replies on errors** — text cut off by an LLM/network error isn't saved (only user-stopped or abandoned replies are, as `interrupted`).
 - **Realtime coverage of older pages** — `onSnapshot` covers the first loaded page plus everything newer; pages loaded by scrolling up are static.

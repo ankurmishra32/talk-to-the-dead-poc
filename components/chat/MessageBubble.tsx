@@ -83,6 +83,11 @@ export default function MessageBubble({
           >
             {m.content}
           </div>
+          {!isUser && m.interrupted && (
+            <p className="text-[11px] mt-1 ml-1" style={{ color: "var(--color-text-muted)" }}>
+              {strings.messageBubble.stopped}
+            </p>
+          )}
           {(canEdit || canDelete) && (
             <div
               className={`absolute -top-3 ${isUser ? "left-0" : "right-0"} flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150`}

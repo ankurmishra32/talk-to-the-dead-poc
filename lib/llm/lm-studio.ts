@@ -167,7 +167,12 @@ export const lmStudioAdapter: LlmAdapter = {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : "Stream interrupted";
-          logger.error(`LM Studio stream interrupted: ${message}`);
+          if (signal.aborted) {
+            // The user stopped the reply (or left); not an error.
+            logger.info(`LM Studio stream cancelled by client`);
+          } else {
+            logger.error(`LM Studio stream interrupted: ${message}`);
+          }
           try {
             controller.enqueue(sseError(USER_MSG.streamError));
             controller.close();

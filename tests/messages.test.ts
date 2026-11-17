@@ -6,6 +6,8 @@ import {
   isPersistedId,
   trimHistory,
   toMillis,
+  settledReplies,
+  swapMessageId,
 } from "../lib/messages";
 import type {
   ChatMessage,
@@ -15,7 +17,7 @@ import type {
 
 function snap(
   id: string,
-  data: { role?: string; content?: string; createdAt?: unknown }
+  data: { role?: string; content?: string; createdAt?: unknown; interrupted?: unknown }
 ): FirestoreDocLike {
   return { id, data: () => data };
 }
@@ -268,5 +270,77 @@ describe("trimHistory", () => {
     expect(out.length).toBeLessThanOrEqual(40);
     expect(total).toBeLessThanOrEqual(24_000);
     expect(out[out.length - 1]).toEqual(u("latest"));
+  });
+});
+
+describe("interrupted replies", () => {
+  it("maps the interrupted flag from docs", () => {
+    const [m] = mapMessageDocs([snap("r", { role: "assistant", content: "par", interrupted: true })]);
+    expect(m.interrupted).toBe(true);
+  });
+
+  it("does not set interrupted on normal replies", () => {
+    const [m] = mapMessageDocs([snap("r", { role: "assistant", content: "full" })]);
+    expect(m.interrupted).toBeUndefined();
+  });
+});
+
+describe("settledReplies", () => {
+  const added = (id: string, content: string, role = "assistant") =>
+    change("added", snap(id, { role, content }));
+
+  it("settles a completed reply whose saved text is identical", () => {
+    const pending = [{ localId: "local-reply-1", text: "hello there" }];
+    expect(settledReplies([added("x", "hello there")], pending)).toEqual(["local-reply-1"]);
+  });
+
+  it("settles a stopped reply when the server saved a few more tokens", () => {
+    const pending = [{ localId: "local-reply-1", text: "hello" }];
+    expect(settledReplies([added("x", "hello there")], pending)).toEqual(["local-reply-1"]);
+  });
+
+  it("ignores user docs, modified docs, and unrelated text", () => {
+    const pending = [{ localId: "local-reply-1", text: "hello" }];
+    expect(
+      settledReplies(
+        [
+          added("u", "hello", "user"),
+          change("modified", snap("m", { role: "assistant", content: "hello" })),
+          added("z", "something else"),
+        ],
+        pending
+      )
+    ).toEqual([]);
+  });
+
+  it("lets each saved doc settle only one pending reply", () => {
+    const pending = [
+      { localId: "a", text: "same" },
+      { localId: "b", text: "same" },
+    ];
+    expect(settledReplies([added("x", "same")], pending)).toEqual(["a"]);
+    expect(settledReplies([added("x", "same"), added("y", "same")], pending)).toEqual(["a", "b"]);
+  });
+
+  it("returns nothing when no replies are pending", () => {
+    expect(settledReplies([added("x", "hi")], [])).toEqual([]);
+  });
+});
+
+describe("swapMessageId", () => {
+  const local: ChatMessage = { id: "local-reply-1", role: "assistant", content: "hi" };
+
+  it("renames the temporary id to the real one", () => {
+    expect(swapMessageId([local], "local-reply-1", "real")).toEqual([{ ...local, id: "real" }]);
+  });
+
+  it("drops the temporary copy if the saved one already arrived", () => {
+    const saved: ChatMessage = { id: "real", role: "assistant", content: "hi" };
+    expect(swapMessageId([local, saved], "local-reply-1", "real")).toEqual([saved]);
+  });
+
+  it("is a no-op when the temporary id is gone", () => {
+    const prev: ChatMessage[] = [{ id: "real", role: "assistant", content: "hi" }];
+    expect(swapMessageId(prev, "local-reply-1", "real")).toBe(prev);
   });
 });

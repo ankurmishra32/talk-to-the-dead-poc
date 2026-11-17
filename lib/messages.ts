@@ -89,6 +89,62 @@ function insertByTime(list: ChatMessage[], incoming: ChatMessage): ChatMessage[]
   return [...list.slice(0, idx), incoming, ...list.slice(idx)];
 }
 
+/** The message document fields the mapping helpers read. */
+type MessageDocData = {
+  role?: string;
+  content?: string;
+  createdAt?: unknown;
+  interrupted?: unknown;
+};
+
+/**
+ * A reply the client has shown under a temporary local id while the server
+ * saves it. Settled when the saved copy arrives (live listener) or its id
+ * arrives over SSE.
+ */
+export type PendingReply = { localId: string; text: string };
+
+/**
+ * Returns the local ids of pending replies whose saved copy is among
+ * `changes` (an "added" assistant doc). The saved text starts with what the
+ * client showed: equal for a completed reply, possibly a few tokens longer
+ * for a stopped one (tokens in flight when the user pressed Stop). Each
+ * added doc settles at most one pending reply.
+ */
+export function settledReplies(
+  changes: FirestoreChangeLike[],
+  pending: PendingReply[]
+): string[] {
+  if (pending.length === 0) return [];
+  const settled: string[] = [];
+  for (const change of changes) {
+    if (change.type !== "added") continue;
+    const data = change.doc.data() as MessageDocData;
+    if (data.role !== "assistant" || typeof data.content !== "string") continue;
+    const content = data.content;
+    const match = pending.find(
+      (p) => !settled.includes(p.localId) && p.text !== "" && content.startsWith(p.text)
+    );
+    if (match) settled.push(match.localId);
+  }
+  return settled;
+}
+
+/**
+ * Gives a temporarily-keyed message its real document id. If the saved copy
+ * already arrived under the real id, the temporary one is dropped instead,
+ * so the message never shows twice.
+ */
+export function swapMessageId(
+  prev: ChatMessage[],
+  fromId: string,
+  toId: string
+): ChatMessage[] {
+  if (!prev.some((m) => m.id === fromId)) return prev;
+  if (prev.some((m) => m.id === toId)) return prev.filter((m) => m.id !== fromId);
+  return prev.map((m) => (m.id === fromId ? { ...m, id: toId } : m));
+}
+
 /** True when a message id corresponds to a real persisted Firestore doc. */
 export function isPersistedId(id: string | undefined): id is string {
   return typeof id === "string" && !id.startsWith("local-");
@@ -130,7 +186,7 @@ export function appendUniqueMessage(
 export function mapMessageDocs(docs: FirestoreDocLike[]): ChatMessage[] {
   return docs
     .map((d): ChatMessage | null => {
-      const data = d.data() as { role?: string; content?: string; createdAt?: unknown };
+      const data = d.data() as MessageDocData;
       if (
         (data.role === "user" || data.role === "assistant") &&
         typeof data.content === "string"
@@ -139,6 +195,7 @@ export function mapMessageDocs(docs: FirestoreDocLike[]): ChatMessage[] {
         const message: ChatMessage = { id: d.id, role, content: data.content };
         const createdAtMs = toMillis(data.createdAt);
         if (createdAtMs !== undefined) message.createdAtMs = createdAtMs;
+        if (data.interrupted === true) message.interrupted = true;
         return message;
       }
       return null;
@@ -170,7 +227,7 @@ export function reconcileMessages(
   for (const change of changes) {
     const id = change.doc.id;
     if (dirtyIds.has(id)) continue;
-    const data = change.doc.data() as { role?: string; content?: string; createdAt?: unknown };
+    const data = change.doc.data() as MessageDocData;
     if (
       change.type === "removed" ||
       (data.role !== "user" && data.role !== "assistant") ||
@@ -189,12 +246,14 @@ export function reconcileMessages(
     };
     const createdAtMs = toMillis(data.createdAt);
     if (createdAtMs !== undefined) incoming.createdAtMs = createdAtMs;
+    if (data.interrupted === true) incoming.interrupted = true;
     const idx = next.findIndex((m) => m.id === id);
     if (idx === -1) {
       next = insertByTime(next, incoming);
     } else if (
       next[idx].content !== incoming.content ||
       next[idx].role !== incoming.role ||
+      Boolean(next[idx].interrupted) !== Boolean(incoming.interrupted) ||
       // The server timestamp replaces an optimistic (browser-clock) one, so
       // later time-ordered inserts compare against the server's clock.
       (incoming.createdAtMs !== undefined &&

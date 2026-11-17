@@ -49,6 +49,8 @@ export type ChatMessage = {
   content: string;
   /** Epoch ms from the doc's `createdAt`; used to keep live inserts in order. */
   createdAtMs?: number;
+  /** True for an assistant reply the user stopped mid-stream (partial text). */
+  interrupted?: boolean;
 };
 
 /** The subset of the Firebase user used by components. */

@@ -89,7 +89,7 @@ The user describes the person through structured, non-technical questions. No pr
 | Requirement | Acceptance criteria |
 |---|---|
 | Token-by-token streaming | Reply streams in as it is generated, shown as a blinking cursor while typing. |
-| Cancel mid-stream | User can stop generation; any partial text is preserved as the assistant reply. |
+| Cancel mid-stream | User can stop generation. Generation stops on the server, and the partial text is saved as the assistant reply, marked "Stopped"; it survives reloads. |
 | Typing indicator | "Name is typing…" is shown while waiting for the first token. |
 | Auto-scroll | New messages keep the latest message in view. |
 
@@ -205,5 +205,5 @@ This PoC validates the core loop. Planned phases:
 - **Memory retrieval** — only the 20 most recent memories for a persona reach the prompt. Fine for tens of memories; needs relevance ranking or embeddings once there are hundreds.
 - **Few-shot exemplars** — up to 3 demos are built from the persona's speech examples, but there are no real "they would have said…" Q/A pairs from the user yet.
 - **Cross-instance rate limiting** — shared across instances via Upstash Redis when configured; without it, each cold start on Vercel gets a fresh in-process store.
-- **Streaming partial saves** — reloading mid-stream loses the partial reply; the conversation shows up to the last completed turn. Matches user intuition.
+- **Partial replies on errors** — a reply cut off by an LLM/network error (not by the user) is not saved; the user sees an error and retries. Partial replies the user stops, or leaves by closing/reloading the tab, are saved as `interrupted`.
 - **Realtime coverage of older pages** — realtime sync covers the first loaded page (latest 40 at open) and everything newer; older pages loaded by scrolling up are static.

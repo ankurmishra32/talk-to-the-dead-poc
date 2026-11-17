@@ -119,7 +119,18 @@ export default async function handler(
   // can emit an `event: error` event before closing, matching the
   // pre-refactor behavior.
   const ac = new AbortController();
-  req.on("close", () => ac.abort());
+  // Detect the client going away (Stop button, closed tab, navigation).
+  // `req` "close" is not usable for this: on Node 16+ it fires as soon as the
+  // request body has been read, not when the connection drops. `res` "close"
+  // fires when the connection closes; if the response hasn't been ended by
+  // us yet, the client disconnected mid-reply.
+  let clientGone = false;
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      ac.abort();
+    }
+  });
 
   // Concurrency cap on in-flight streams. Once the rate check is
   // past, what protects the local model server is how many simultaneous streams this
@@ -165,7 +176,9 @@ export default async function handler(
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      if (value) {
+      // After a disconnect, keep draining (the adapter closes promptly once
+      // aborted) but don't write to the closed response.
+      if (value && !clientGone) {
         // res.write accepts Buffer or string; Uint8Array is fine.
         res.write(Buffer.from(value));
       }
@@ -188,11 +201,16 @@ export default async function handler(
     // for a PoC.
     try {
       const [reply, didComplete] = await Promise.all([finalReply, completed]);
-      if (reply && didComplete) {
+      // Save a completed reply, or — when the user stopped it / left — the
+      // partial text, flagged `interrupted` so it reloads as a stopped reply.
+      // Partial text from an upstream error is not saved: the user sees an
+      // error and retries.
+      const interrupted = !didComplete && clientGone;
+      if (reply && (didComplete || interrupted)) {
         try {
           const messageId = await appendConversationMessage(
             persona.id,
-            { role: "assistant", content: reply },
+            { role: "assistant", content: reply, interrupted },
             uid,
             authorization
           );

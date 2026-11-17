@@ -25,7 +25,10 @@ import {
   isPersistedId,
   mapMessageDocs,
   reconcileMessages,
+  settledReplies,
+  swapMessageId,
   trimHistory,
+  type PendingReply,
 } from "../lib/messages";
 import type {
   ChatMessage,
@@ -92,7 +95,9 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const pendingAssistantIdRef = useRef<string | null>(null);
+  // Replies shown under a temporary id until the server's saved copy (live
+  // listener) or its real id (SSE "id" event) arrives. See settledReplies.
+  const pendingRepliesRef = useRef<PendingReply[]>([]);
   const nearBottomRef = useRef(true);
   const dirtyIdsRef = useRef<Set<string>>(new Set());
   const sendingRef = useRef(false);
@@ -107,6 +112,7 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     setLoadingMore(false);
     setEditingId(null);
     dirtyIdsRef.current = new Set();
+    pendingRepliesRef.current = [];
     setError(null);
     setProfile(null);
     setShowProfile(false);
@@ -173,9 +179,21 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
           liveQuery,
           (snap) => {
             if (cancelled) return;
-            setMessages((prev) =>
-              reconcileMessages(prev, snap.docChanges(), dirtyIdsRef.current)
-            );
+            const changes = snap.docChanges();
+            // Computed outside the state updater (which StrictMode may run
+            // twice) so the ref is only updated once.
+            const settled = settledReplies(changes, pendingRepliesRef.current);
+            if (settled.length > 0) {
+              pendingRepliesRef.current = pendingRepliesRef.current.filter(
+                (p) => !settled.includes(p.localId)
+              );
+            }
+            setMessages((prev) => {
+              const next = reconcileMessages(prev, changes, dirtyIdsRef.current);
+              return settled.length > 0
+                ? next.filter((m) => !m.id || !settled.includes(m.id))
+                : next;
+            });
           },
           (err) => {
             if (cancelled) return;
@@ -343,7 +361,6 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
     setError(null);
     setStreamingContent("");
     setLoading(true);
-    pendingAssistantIdRef.current = null;
 
     // The doc id is assigned up front, so the optimistic message and the
     // realtime listener's copy share one id (no placeholder swap, no duplicate).
@@ -435,6 +452,23 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
       let buffer = "";
       let accumulated = "";
       let aborted = false;
+      // Temporary id of this reply once it's shown as a message.
+      let replyLocalId: string | null = null;
+
+      // Shows the reply as a regular message right away (at "done", or with
+      // the partial text after Stop) under a temporary id, and closes the
+      // streaming bubble. The server's saved copy then replaces it.
+      const commitReply = (text: string, interrupted: boolean) => {
+        if (!text || replyLocalId) return;
+        const localId = `local-reply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        replyLocalId = localId;
+        pendingRepliesRef.current = [...pendingRepliesRef.current, { localId, text }];
+        const message: ChatMessage = { id: localId, role: "assistant", content: text };
+        if (interrupted) message.interrupted = true;
+        setMessages((prev) => [...prev, message]);
+        setStreamingContent("");
+        setLoading(false);
+      };
 
       try {
         while (true) {
@@ -453,10 +487,17 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
                 accumulated += d.delta;
                 setStreamingContent(accumulated);
               }
+            } else if (ev.event === "done") {
+              commitReply(accumulated, false);
             } else if (ev.event === "id") {
               const d = ev.data as { id?: unknown };
-              if (typeof d.id === "string") {
-                pendingAssistantIdRef.current = d.id;
+              if (typeof d.id === "string" && replyLocalId) {
+                const fromId = replyLocalId;
+                const toId = d.id;
+                pendingRepliesRef.current = pendingRepliesRef.current.filter(
+                  (p) => p.localId !== fromId
+                );
+                setMessages((prev) => swapMessageId(prev, fromId, toId));
               }
             } else if (ev.event === "error") {
               const d = ev.data as { error?: unknown };
@@ -473,19 +514,15 @@ export default function Chat({ persona, user, onBack }: { persona: PersonaRefere
         aborted = true;
       }
 
-      // Commit the reply: the full one, or the partial text after Stop.
-      // Empty replies are never added (they'd be sent back as invalid history).
-      if (accumulated) {
-        const assistantId = pendingAssistantIdRef.current ?? undefined;
-        setMessages((prev) =>
-          appendUniqueMessage(prev, {
-            id: assistantId,
-            role: "assistant",
-            content: accumulated,
-          })
-        );
-      } else if (!aborted) {
-        setError(strings.chat.emptyReply);
+      // Normally the reply was committed at "done". Otherwise: after Stop,
+      // show the partial text (the server saves it as `interrupted`). Empty
+      // replies are never added (they'd be sent back as invalid history).
+      if (!replyLocalId) {
+        if (accumulated) {
+          commitReply(accumulated, aborted);
+        } else if (!aborted) {
+          setError(strings.chat.emptyReply);
+        }
       }
     } finally {
       if (controller && abortRef.current === controller) abortRef.current = null;

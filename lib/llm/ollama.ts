@@ -171,7 +171,12 @@ export const ollamaAdapter: LlmAdapter = {
           // drop). Emit error event if we can; otherwise the route
           // will see the stream close and surface a generic message.
           const message = err instanceof Error ? err.message : "Stream interrupted";
-          logger.error(`Ollama stream interrupted: ${message}`);
+          if (signal.aborted) {
+            // The user stopped the reply (or left); not an error.
+            logger.info(`Ollama stream cancelled by client`);
+          } else {
+            logger.error(`Ollama stream interrupted: ${message}`);
+          }
           try {
             controller.enqueue(sseError(USER_MSG.streamError));
             controller.close();

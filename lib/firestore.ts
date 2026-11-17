@@ -256,7 +256,7 @@ export async function listMemoriesForPersona(
  */
 export async function appendConversationMessage(
   personaId: string,
-  message: { role: "user" | "assistant"; content: string },
+  message: { role: "user" | "assistant"; content: string; interrupted?: boolean },
   userId: string,
   authorization: string
 ): Promise<string> {
@@ -272,6 +272,8 @@ export async function appendConversationMessage(
       role: { stringValue: message.role },
       content: { stringValue: message.content },
       createdAt: { timestampValue: new Date().toISOString() },
+      // Only set on replies the user stopped (or left) mid-stream.
+      ...(message.interrupted ? { interrupted: { booleanValue: true } } : {}),
     },
   };
 
